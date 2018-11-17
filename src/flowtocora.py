@@ -99,7 +99,6 @@ class FlowStarToCORA:
 
 
         x0 += "];\n"
-
         r0 += options['stepSize'] + " * eye(" + str(len(initial)) + ")]);\n"
 
         res += x0
