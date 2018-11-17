@@ -119,7 +119,6 @@ class FlowStarToCORA:
                 file.readline()
             loc_name = file.readline()
             loc_names.append(loc_name.replace('\n',''))
-            print("Loc name: ", loc_name)
             for line in file:
                 if open_braces == 0:
                     break
