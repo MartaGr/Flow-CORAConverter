@@ -1,5 +1,4 @@
 import sys
-import re
 
 class LinHybridFlowStarToCORA:
 
@@ -167,32 +166,32 @@ class LinHybridFlowStarToCORA:
         for i in range(1,len(loc_names)):
             res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
-        res += "\n"
-        res += self.__constructLocations(loc_names, flows, invariants, options)
+        res += "%define flows--------------------------------------------------------------\n\n"
+        res += self.__constructFlows(loc_names, flows, invariants, options)
 
         return res
 
-    def __constructLocations(self, loc_names, flows, invariants, options):
-        res = "%define flows--------------------------------------------------------------\n"
+    def __constructFlows(self, loc_names, flows, invariants, options):
+        res = ""
         vars = options['stateVars']
         intervals = []
         matrix = []
         constants = []
+        counter = 0
 
         for flow in flows:
             single_flow = []
-            constants = []
             for direc in flow:
                 direc = direc.replace('- ', '+ -')
                 single_flow.append(direc.split(' + '))
             normalized_flow = self.__normalize(single_flow, vars)
-            print("Normalized flow: ", normalized_flow)
             A, b, inter = self.__flowToMatrix(normalized_flow, vars)
-            print("Matrix: ", A)
-            print("Constants: ", b)
-            print("Intervals: ", inter)
-
-            matrix.append(A)
+            res += 'A' + str(counter) + " = " + A + ';\n'
+            res += 'B' + str(counter) + ' = zeros(' + str(len(vars)) + ", 1);\n"
+            res += 'c' + str(counter) + " = " + b + ';\n'
+            #TODO What to do with the intervals???
+            res += "flow"+ str(counter) +" = linearSys('linearSys" + str(counter) + "', A" + str(counter) + ", B" + str(counter) + ", c" + str(counter) + ");\n\n"
+            counter += 1
 
         return res
 
@@ -258,8 +257,8 @@ class LinHybridFlowStarToCORA:
                     coefficients.append(c_array[0])
                 else:
                     coefficients.append('1')
-            entry.append(coefficients)
-            matrix.append(entry)
+            #entry.append(coefficients)
+            matrix.append(coefficients)
 
             # Get the constants
             temp = [x for x in f if self.__isNumber(x)]
@@ -275,7 +274,24 @@ class LinHybridFlowStarToCORA:
                 sys.exit(err_mes)
             interval = temp[0]
 
-        return matrix, b, interval
+        m = self.__printMatrixToCORA(matrix)
+        constants = self.__printMatrixToCORA(b)
+        return m, constants, interval
+
+    def __printMatrixToCORA(self, matrix):
+        res = "["
+        cntr = 0
+        for i in range(len(matrix)):
+            for j in range(len(matrix[0])):
+                res += str(matrix[i][j]) + " "
+            cntr += 1
+            if cntr < len(matrix):
+                if len(matrix) > 5:
+                    res += "; ...\n"
+                else:
+                    res += "; "
+        res += "]"
+        return res
 
 
     def __getJumps(self, line, infile):
@@ -308,6 +324,7 @@ class LinHybridFlowStarToCORA:
         name = name.replace('.model','')
         res = self.__readFile(infile, options, name)
         print(res)
+
 
 
 class NonLinHybridFlowToCORA:
