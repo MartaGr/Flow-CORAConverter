@@ -1,4 +1,5 @@
 import sys
+import re
 
 class LinHybridFlowStarToCORA:
 
@@ -131,6 +132,7 @@ class LinHybridFlowStarToCORA:
                     while '}' not in line:
                         line = line.split('=')
                         f = line[len(line) - 1].replace('\n','')
+                        f = f.replace('- ', '+ -')
                         fl.append(f)
                         line = file.readline()
                     flows.append(fl)
@@ -173,14 +175,58 @@ class LinHybridFlowStarToCORA:
 
     def __constructLocations(self, loc_names, flows, invariants, options):
         res = "%define flows--------------------------------------------------------------\n"
+        vars = options['stateVars']
+        intervals = []
 
-        print(options['stateVars'])
-        print(flows)
 
         for flow in flows:
-            pass #TODO Work on here!!
+            print("Next flow")
+            single_flows = []
+            matrix = []
+            b = []
+            for fl in flow:
+                print("Fl: ", fl)
+                for term in fl:
+                    # Check if it is an interval
+                    if '[' in term:
+                        intervals.append(term)
+                    else:
+                        # Check if a variable is contained
+                        contains_var = False
+                        for v in vars:
+                            if v in term:
+                                # The term contains a variable
+                                term = term.replace(v, '')
+                                term = term.replace('*','')
+                                term = term.replace(' ','')
+                                if not any(char.isdigit() for char in term):
+                                    term = '-1'
+                                entry = []
+                                var_index = vars.index(v)
+                                for i in range(len(vars)):
+                                    if i != var_index:
+                                        entry.append(0)
+                                    else:
+                                        entry.append(term)
+                                print("New entry: ",entry)
+                                matrix.append(entry)
+                                contains_var = True
+                                break
+                        if not contains_var:
+                            # The term is just a constant
+                            term = term.replace(' ', '')
+                            entry = []
+                            for i in range(len(vars)):
+                                entry.append(0)
+                            b.append(term)
+                            matrix.append(entry)
 
+            print('A: ', matrix)
+            print('b: ', b)
         return res
+
+
+
 
     def __getJumps(self, line, infile):
         res = ""
