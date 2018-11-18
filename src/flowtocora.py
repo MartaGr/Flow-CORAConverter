@@ -132,7 +132,6 @@ class LinHybridFlowStarToCORA:
                     while '}' not in line:
                         line = line.split('=')
                         f = line[len(line) - 1].replace('\n','')
-                        f = f.replace('- ', '+ -')
                         fl.append(f)
                         line = file.readline()
                     flows.append(fl)
@@ -184,7 +183,11 @@ class LinHybridFlowStarToCORA:
             single_flows = []
             matrix = []
             b = []
-            for fl in flow:
+            # for direc in flow:
+            #     direc = direc.replace('- ', '+ -')
+            #     single_flows.append(direc.split(' + '))
+            # print(single_flows)
+            for fl in single_flows:
                 print("Fl: ", fl)
                 for term in fl:
                     # Check if it is an interval
