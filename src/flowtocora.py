@@ -176,59 +176,106 @@ class LinHybridFlowStarToCORA:
         res = "%define flows--------------------------------------------------------------\n"
         vars = options['stateVars']
         intervals = []
-
+        matrix = []
+        constants = []
 
         for flow in flows:
-            print("Next flow")
-            single_flows = []
-            matrix = []
-            b = []
-            # for direc in flow:
-            #     direc = direc.replace('- ', '+ -')
-            #     single_flows.append(direc.split(' + '))
-            # print(single_flows)
-            for fl in single_flows:
-                print("Fl: ", fl)
-                for term in fl:
-                    # Check if it is an interval
-                    if '[' in term:
-                        intervals.append(term)
-                    else:
-                        # Check if a variable is contained
-                        contains_var = False
-                        for v in vars:
-                            if v in term:
-                                # The term contains a variable
-                                term = term.replace(v, '')
-                                term = term.replace('*','')
-                                term = term.replace(' ','')
-                                if not any(char.isdigit() for char in term):
-                                    term = '-1'
-                                entry = []
-                                var_index = vars.index(v)
-                                for i in range(len(vars)):
-                                    if i != var_index:
-                                        entry.append(0)
-                                    else:
-                                        entry.append(term)
-                                print("New entry: ",entry)
-                                matrix.append(entry)
-                                contains_var = True
-                                break
-                        if not contains_var:
-                            # The term is just a constant
-                            term = term.replace(' ', '')
-                            entry = []
-                            for i in range(len(vars)):
-                                entry.append(0)
-                            b.append(term)
-                            matrix.append(entry)
+            single_flow = []
+            constants = []
+            for direc in flow:
+                direc = direc.replace('- ', '+ -')
+                single_flow.append(direc.split(' + '))
+            normalized_flow = self.__normalize(single_flow, vars)
+            print("Normalized flow: ", normalized_flow)
+            A, b, inter = self.__flowToMatrix(normalized_flow, vars)
+            print("Matrix: ", A)
+            print("Constants: ", b)
+            print("Intervals: ", inter)
 
-            print('A: ', matrix)
-            print('b: ', b)
+            matrix.append(A)
+
         return res
 
+    def __normalize(self, flow, vars):
+        for f in flow:
+            vars_contained = []
+            constants = 0
+            # Check which variables are contained in the expression
+            for term in f:
+                for v in vars:
+                    if v in term:
+                        vars_contained.append(v)
+                # Check if a constant is contained in the expression
+                if self.__isNumber(term):
+                    constants += 1
 
+            #  Normalize
+            if len(vars_contained) != len(vars):
+                # Not all variables are contained in the expression
+                for v in vars:
+                    if v not in vars_contained:
+                        # Add dummy
+                        newTerm = '0 * ' + v
+                        f.append(newTerm)
+            if constants == 0:
+                # There is no constant
+                f.append('0')
+            if constants > 1:
+                errMes = "The expression for flow is not minimal! - Add the constants"
+                sys.exit(errMes)
+        return flow
+
+    def __isNumber(self, expr):
+        try:
+            float(expr)
+            return True
+        except ValueError:
+            return False
+
+    def __flowToMatrix(self, flow, vars):
+        matrix = []
+        b = []
+        interval = ''
+        for f in flow:
+            entry = []
+            coefficients = []
+            # Get the coefficients for variables
+            for v in vars:
+                temp = [x for x in f if (v in x) ]
+                if len(temp) > 1:
+                    err_mes = 'The expression for flow is not minimal! - Add the coefficients for variable ' + v
+                    sys.exit(err_mes)
+                if len(temp) == 0:
+                    err_mes = "A coefficient in flow is wrongly written!"
+                    sys.exit(err_mes)
+                c = temp[0].replace(' ','')
+                if ("-" + v) in c:
+                    coefficients.append('-1')
+                elif '0' in c:
+                    coefficients.append('0')
+                elif '*' in c:
+                    c_array = c.split('*')
+                    coefficients.append(c_array[0])
+                else:
+                    coefficients.append('1')
+            entry.append(coefficients)
+            matrix.append(entry)
+
+            # Get the constants
+            temp = [x for x in f if self.__isNumber(x)]
+            if len(temp) == 0:
+                err_mes = "In one of the flow expressions is no constant! - Add a 0"
+                sys.exit(err_mes)
+            b.append(temp)
+
+            # Get intervals
+            temp = [term for term in f if '[' in term]
+            if len(b) == 0:
+                err_mes = "One flow expression is wrong! - Added two intervals"
+                sys.exit(err_mes)
+            interval = temp[0]
+
+        return matrix, b, interval
 
 
     def __getJumps(self, line, infile):
