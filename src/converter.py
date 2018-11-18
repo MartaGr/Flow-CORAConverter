@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QFileDialog
 
-from src.flowtocora import FlowStarToCORA
+from src.flowtocora import LinHybridFlowStarToCORA, NonLinHybridFlowToCORA, LinContFlowToCORA, NonLinContFlowToCORA
 from src.coratoflow import CORAtoFlowStar
 from src.Ui_MainWindow import Ui_MainWindow
 
@@ -111,7 +111,6 @@ if __name__ == '__main__':
     # main_win = MainWindow()
     # main_win.show()
     #sys.exit(app.exec_())
-    converter = FlowStarToCORA()
     options = {'system': 'linear hybrid',
                'taylor': '10',
                'zonotope': '20',
@@ -121,5 +120,15 @@ if __name__ == '__main__':
                'enclosure': '0',
                'hyperplane': '0',
                'origin': '0'}
-    converter.convert('/Users/marta/Downloads/rod_reactor.model', '/Users/marta/Downloads/rod_reactor.m',options)
+
+    if options['system'] == 'linear hybrid':
+        conv = LinHybridFlowStarToCORA()
+    elif options['system'] == 'non-linear hybrid':
+        conv = NonLinHybridFlowToCORA()
+    elif options['system'] == 'linear continuous':
+        conv = LinContFlowToCORA()
+    else:
+        conv = NonLinContFlowToCORA()
+
+    conv.convert('/Users/marta/Downloads/two_tanks.model', '/Users/marta/Downloads/two_tanks.m',options)
 

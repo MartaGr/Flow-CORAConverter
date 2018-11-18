@@ -1,6 +1,6 @@
 import sys
 
-class FlowStarToCORA:
+class LinHybridFlowStarToCORA:
 
     def __readFile(self, infile, options, name):
         count = 0
@@ -8,7 +8,6 @@ class FlowStarToCORA:
         modes_line = 0
         jumps_line = 0
         unsafe_line = 0
-        stepSize = ""
 
         with open(infile, 'r') as file:
             for line in file:
@@ -25,15 +24,15 @@ class FlowStarToCORA:
                     options['stepSize'] = stepSize
                 if 'time' in line:
                     tFinal = line.split(' ')[3]
-                    tFinal.replace('\n','')
+                    tFinal = tFinal.replace('\n','')
                     options['tFinal'] = tFinal
                 if 'remainder estimation' in line:
                     reminder = line.split(' ')[4]
-                    reminder.replace('\n','')
+                    reminder = reminder.replace('\n','')
                     options['reminder'] = reminder
                 if 'max jumps' in line:
                     jumps = line.split(' ')[4]
-                    jumps.replace('\n','')
+                    jumps = jumps.replace('\n','')
                     options['jumps'] = jumps
                 if 'init' in line:
                     init_line = count
@@ -58,7 +57,7 @@ class FlowStarToCORA:
 
 
     def __getInitialization(self, start, infile,name,options):
-        res = "function res = " + name + "()\n"
+        res = "function res = " + name + "()\n\n"
         res += "%set options---------------------------------------------------------------\n"
         initial = []
 
@@ -70,7 +69,8 @@ class FlowStarToCORA:
                 file.readline()
                 if i == start:
                     initState = file.readline()
-                    initState.replace('\n','')
+                    initState = initState.replace('\n','')
+                    initState = initState.replace(' ', '')
                     options['initState'] = initState
 
             #Now, extract the initalization information
@@ -78,12 +78,10 @@ class FlowStarToCORA:
                 if '}' in line:
                     break
                 else:
-                    initial.append(line.split(' ')[5])
-
-
+                    l = line.split(' ')
+                    initial.append(l[len(l) - 1])
         file.close()
 
-        print("Initial state: ", initState)
         count = 0
         for item in initial:
             item = item.replace('[','')
@@ -108,7 +106,6 @@ class FlowStarToCORA:
     def __getModes(self, start, infile,options):
         res = ""
         inv_area = False
-        locations = []
         loc_names = []
         flows = []
         open_braces = 1
@@ -117,8 +114,6 @@ class FlowStarToCORA:
         with open(infile, 'r') as file:
             for i in range(start + 1):
                 file.readline()
-            loc_name = file.readline()
-            loc_names.append(loc_name.replace('\n',''))
             for line in file:
                 if open_braces == 0:
                     break
@@ -150,13 +145,40 @@ class FlowStarToCORA:
                         line = file.readline()
                     invariants.append(inv)
                     inv_area = False
+                    open_braces -= 1
+                if open_braces == 1 and '}' not in line:
+                    line = line.replace(' ', '')
+                    line = line.replace('\n','')
+                    loc_names.append(line)
 
+        while '' in loc_names:
+            loc_names.remove('')
 
+        sL = options['initState']
+        startLoc = loc_names.index(sL)
+        res += "options.startLoc = " + str(startLoc) + ";\n"
+        res += "options.finalLoc = 0;\n"
+        res += "options.tStart = 0;\n"
+        tFinal = options['tFinal']
+        res += "options.tFinal = " + tFinal + ";\n"
 
+        stepSize = options['stepSize']
+        for i in range(1,len(loc_names)):
+            res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
-            print("Names: ", loc_names)
-            print("Flows: ", flows)
-            print("Invariants: ", invariants)
+        res += "\n"
+        res += self.__constructLocations(loc_names, flows, invariants, options)
+
+        return res
+
+    def __constructLocations(self, loc_names, flows, invariants, options):
+        res = "%define flows--------------------------------------------------------------\n"
+
+        print(options['stateVars'])
+        print(flows)
+
+        for flow in flows:
+            pass #TODO Work on here!!
 
         return res
 
@@ -170,23 +192,21 @@ class FlowStarToCORA:
 
     def __writeOptions(self, options):
         res = ""
-        res += "options.startLoc = " + str(options['initState']) + "\n"
-        res += "options.taylorTerms = " + str(options['taylor']) + "\n"
-        res += "options.zonotopeOrder = " + str(options['zonotope']) + "\n"
-        res += "options.polytopeOrder = " + str(options['polytope']) + "\n"
-        res += "options.reductionTechnique = " + str(options['reduction']) + "\n"
-        res += "options.isHyperplaneMap = " + str(options['hyperplane']) + "\n"
-        res += "options.guardIntersect = " + str(options['guard']) + "\n"
-        res += "options.enclosureEnables = " + str(options['enclosure']) + "\n"
-        res += "options.originContained = " + str(options['origin']) + "\n"
+        res += "options.taylorTerms = " + str(options['taylor']) + ";\n"
+        res += "options.zonotopeOrder = " + str(options['zonotope']) + ";\n"
+        res += "options.polytopeOrder = " + str(options['polytope']) + ";\n"
+        res += "options.reductionTechnique = " + str(options['reduction']) + ";\n"
+        res += "options.isHyperplaneMap = " + str(options['hyperplane']) + ";\n"
+        res += "options.guardIntersect = " + str(options['guard']) + ";\n"
+        res += "options.enclosureEnables = " + str(options['enclosure']) + ";\n"
+        res += "options.originContained = " + str(options['origin']) + ";\n"
 
         return res
 
 
 
     def convert(self, infile, outfile, options):
-        print("Flow*-CORA Converter started")
-
+        #TODO check if which system we have
         path = infile.split('/')
         name = str(path[len(path) - 1])
         name = name.replace('.model','')
@@ -194,4 +214,12 @@ class FlowStarToCORA:
         print(res)
 
 
+class NonLinHybridFlowToCORA:
+    pass
+
+class LinContFlowToCORA:
+    pass
+
+class NonLinContFlowToCORA:
+    pass
 
