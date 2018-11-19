@@ -56,11 +56,12 @@ class LinHybridFlowStarToCORA:
         res = ""
         res += self.__getInitialization(init_line, infile, name, options)
         res += self.__writeOptions(options)
-        temp, loc_names, inv_names, number_inv = self.__getModes(modes_line, infile, options)
+        temp, loc_names, inv_names = self.__getModes(modes_line, infile, options)
         res += temp
         res += self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
-        res += self.__defineLocations(loc_names, inv_names, number_inv)
-        res += self.__getUnsafeSet(unsafe_line, infile)
+        res += self.__defineLocations(loc_names, inv_names)
+        res += self.__defineHybridAutomaton()
+        res += self.__drawReachableSet()
 
         return res
 
@@ -182,9 +183,9 @@ class LinHybridFlowStarToCORA:
         res += "%define flows--------------------------------------------------------------\n\n"
         res += self.__constructFlows(flows, options['stateVars'])
         res += "%define invariants---------------------------------------------------------\n\n"
-        temp, inv_names, number_inv = self.__constructInvariants(loc_names, invariants, options['stateVars'])
+        temp, inv_names= self.__constructInvariants(loc_names, invariants, options['stateVars'])
         res += temp
-        return res, loc_names, inv_names, number_inv
+        return res, loc_names, inv_names
 
     def __constructFlows(self,flows, vars):
         res = ""
@@ -297,15 +298,16 @@ class LinHybridFlowStarToCORA:
         res = ""
         counter = 0
         inv_names = []
-        number_inv = 0
+
         for inv in invariants:
             if inv != []:
                 name = 'inv' + str(counter + 1)
                 inv_names.append(name)
             else:
                 inv_names.append('non')
+            cnt = 1
+            counter += 1
             for expr in inv:
-                number_inv += 1
                 res += '%' + expr + '\n'
                 i = expr.split(' ')
                 if len(i) < 3:
@@ -317,10 +319,11 @@ class LinHybridFlowStarToCORA:
                 operator = operator.replace(' ', '')
                 rhs = i[len(i) - 1]
                 rhs = rhs.replace(' ', '')
-                counter += 1
-                res += 'inv' + str(counter) + " = " + self.__writeMptPolytope(lhs,operator,rhs, vars) + '\n'
 
-        return res, inv_names, number_inv
+                res += 'inv' + str(counter) + "{" + str(cnt) + "} = " + self.__writeMptPolytope(lhs,operator,rhs, vars) + '\n'
+                cnt += 1
+
+        return res, inv_names
 
     def __writeMptPolytope(self, lhs, operator, rhs, vars):
         res = "mptPolytope(struct('A', "
@@ -462,28 +465,44 @@ class LinHybridFlowStarToCORA:
                     res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + str(counter) + ", reset" + str(counter) + ", " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res
 
-    def __defineLocations(self, loc_names, inv_names, number_inv):
-        print(inv_names)
-        print(number_inv)
+    def __defineLocations(self, loc_names, inv_names):
         res = "\n%define locations----------------------------------------------------------\n\n"
         counter = 1
         for loc in loc_names:
             res += "options.uLoc{" + str(counter) + "} = 0;\n"
             res += "options.uLocTrans{" + str(counter) + "} = 0;\n"
-            res += "options.Uloc{" + str(counter) + "} ) 0;\n"
+            res += "options.Uloc{" + str(counter) + "} = 0;\n\n"
             counter += 1
 
         res += '\n'
-        counter = 0
+        counter = 1
 
         for loc in loc_names:
-            res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str(counter) + ""
+            if inv_names[counter - 1] != "non":
+                inv = "inv" + str(counter)
+            else:
+                inv = '0'
+            res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str (counter) + ", " + inv + ", trans_"+ loc_names[counter - 1] + ", flow" + str(counter) + ");\n"
+            counter += 1
 
-        return " "
-
-    def __getUnsafeSet(self, line, infile):
-        res = ""
         return res
+
+    def __defineHybridAutomaton(self,reach=True, simulation=False):
+        res = "\n%define hybrid automaton---------------------------------------------------\n\n"
+        res += "HA = hybridAutomaton(loc);\n"
+        res += "[HA] = reach(HA, options);\n\n"
+        return res
+
+    def __drawReachableSet(self):
+        res = "figure\n"
+        res += "hold on\n"
+        res += "options.projectedDimensions = [1 2];\n"
+        res += "options.plotType = 'b';\n"
+        res += "plot(HA,'reachableSet',options); %plot reachable set\n"
+        res += "plotFilled(options.R0,options.projectedDimensions,'w','EdgeColor','k'); %plot initial set\n\n"
+        res += "res = 1;\n"
+        return res
+
 
     def __writeOptions(self, options):
         res = ""
