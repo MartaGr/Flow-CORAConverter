@@ -56,8 +56,10 @@ class LinHybridFlowStarToCORA:
         res = ""
         res += self.__getInitialization(init_line, infile, name, options)
         res += self.__writeOptions(options)
-        res += self.__getModes(modes_line, infile, options)
-        res += self.__getJumps(jumps_line, infile)
+        temp, loc_names, inv_names, number_inv = self.__getModes(modes_line, infile, options)
+        res += temp
+        res += self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
+        res += self.__defineLocations(loc_names, inv_names, number_inv)
         res += self.__getUnsafeSet(unsafe_line, infile)
 
         return res
@@ -151,8 +153,7 @@ class LinHybridFlowStarToCORA:
                     inv = []
                     line = file.readline()
                     while '}' not in line:
-                        line = line.split(' ')
-                        it = line[len(line) - 1].replace('\n', '')
+                        it = line.replace('\n', '')
                         inv.append(it)
                         line = file.readline()
                     invariants.append(inv)
@@ -181,12 +182,13 @@ class LinHybridFlowStarToCORA:
         res += "%define flows--------------------------------------------------------------\n\n"
         res += self.__constructFlows(flows, options['stateVars'])
         res += "%define invariants---------------------------------------------------------\n\n"
-        res += self.__constructInvariants(loc_names, invariants, options['stateVars'])
-        return res
+        temp, inv_names, number_inv = self.__constructInvariants(loc_names, invariants, options['stateVars'])
+        res += temp
+        return res, loc_names, inv_names, number_inv
 
     def __constructFlows(self,flows, vars):
         res = ""
-        counter = 0
+        counter = 1
 
         for flow in flows:
             single_flow = []
@@ -292,11 +294,92 @@ class LinHybridFlowStarToCORA:
         return m, constants, interval
 
     def __constructInvariants(self, loc_names, invariants, vars):
-        #TODO Redo the invariants
-        print("Invariants: ", invariants)
+        res = ""
+        counter = 0
+        inv_names = []
+        number_inv = 0
+        for inv in invariants:
+            if inv != []:
+                name = 'inv' + str(counter + 1)
+                inv_names.append(name)
+            else:
+                inv_names.append('non')
+            for expr in inv:
+                number_inv += 1
+                res += '%' + expr + '\n'
+                i = expr.split(' ')
+                if len(i) < 3:
+                    err_mes = "An invariant has wrong form!"
+                    sys.exit(err_mes)
+                lhs = i[len(i) - 3]
+                lhs = lhs.replace(' ', '')
+                operator = i[len(i) - 2]
+                operator = operator.replace(' ', '')
+                rhs = i[len(i) - 1]
+                rhs = rhs.replace(' ', '')
+                counter += 1
+                res += 'inv' + str(counter) + " = " + self.__writeMptPolytope(lhs,operator,rhs, vars) + '\n'
 
+        return res, inv_names, number_inv
 
-        return " "
+    def __writeMptPolytope(self, lhs, operator, rhs, vars):
+        res = "mptPolytope(struct('A', "
+        A = []
+        b = []
+
+        if lhs in vars:
+            var_index = vars.index(lhs)
+            try:
+                constant = float(rhs)
+            except ValueError:
+                sys.exit("An invariant has wrong format")
+        else:
+            var_index = vars.index(rhs)
+            try:
+                constant = float(lhs)
+            except ValueError:
+                sys.exit("An invariant has wrong format")
+        if operator == '=':
+            b = [str(-constant), str(constant)]
+            for k in range(2):
+                entry = []
+                for v in range(len(vars)):
+                    if v == var_index and k == 0:
+                        entry.append('-1')
+                    elif v == var_index and k == 1:
+                        entry.append('1')
+                    else:
+                        entry.append('0')
+                A.append(entry)
+        elif operator == "<=":
+            b = [str(constant)]
+            entry = []
+            for v in range(len(vars)):
+                if v == var_index:
+                    entry.append('1')
+                else:
+                    entry.append('0')
+            A.append(entry)
+        elif operator == ">=":
+            A = []
+            b = [str(-constant)]
+            entry = []
+            for v in range(len(vars)):
+                if v == var_index:
+                    entry.append('-1')
+                else:
+                    entry.append('0')
+            A.append(entry)
+        else:
+            err_mes = "One operand for invarinant is written wrong!"
+            sys.exit(err_mes)
+
+        A_matlab = self.__printMatrixToCORA(A)
+        b_matlab = self.__printVectorToCORA(b)
+
+        res += A_matlab + ", 'b', " + b_matlab + "));\n"
+        return res
+
     def __printMatrixToCORA(self, matrix):
         res = "["
         cntr = 0
@@ -312,6 +395,15 @@ class LinHybridFlowStarToCORA:
         res += "]"
         return res
 
+    def __printVectorToCORA(self, vector):
+        res = "["
+        for v in range(len(vector)):
+            res += vector[v]
+            if v < len(vector) - 1:
+                res += "; "
+        res += "]"
+        return res
+
     def __isNumber(self, expr):
         try:
             float(expr)
@@ -319,9 +411,75 @@ class LinHybridFlowStarToCORA:
         except ValueError:
             return False
 
-    def __getJumps(self, line, infile):
-        res = ""
+    def __getJumps(self, start, infile, vars, locations):
+        res = "\n%define transitions--------------------------------------------------------\n"
+
+        loc_dict = {}
+        for l in locations:
+            loc_dict[l] = 0
+
+        open_braces = 1
+
+        with open(infile, 'r') as file:
+            for i in range(start + 1):
+                file.readline()
+            counter = 0
+            l1 = ''
+            l2 = ''
+            for line in file:
+                if open_braces == 0:
+                    break
+                if '{' in line:
+                    open_braces += 1
+                if '}' in line:
+                    open_braces -= 1
+                if '->' in line:
+                    l = line.split('->')
+                    l1 = l[0].replace(' ', '')
+                    l1 = l1.replace('\n','')
+                    l2 = l[1].replace(' ', '')
+                    l2 = l2.replace('\n', '')
+                    loc_dict[l1] += 1
+                    res += '\n%' + line
+                    counter += 1
+                elif 'guard' in line:
+                    line_array = line.split(' ')
+                    rhs = line_array[len(line_array) - 2]
+                    rhs = rhs.replace(' ', '')
+                    operator = line_array[len(line_array) - 3]
+                    operator = operator.replace(' ', '')
+                    lhs = line_array[len(line_array) - 4]
+                    lhs = lhs.replace(' ', '')
+                    res += "guard" + str(counter) + "= " + self.__writeMptPolytope(lhs, operator, rhs, vars)
+                elif 'reset' in line:
+                    if '{}' in line:
+                        res += "reset" + str(counter) + ".A = eye(" + str(len(vars)) + ");\n"
+                        res += "reset" + str(counter) + ".b = zeros(" + str(len(vars)) + ", 1);\n"
+                elif 'parallelotope' in line:
+                    # TODO What is this?
+                    pass
+                else:
+                    res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + str(counter) + ", reset" + str(counter) + ", " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res
+
+    def __defineLocations(self, loc_names, inv_names, number_inv):
+        print(inv_names)
+        print(number_inv)
+        res = "\n%define locations----------------------------------------------------------\n\n"
+        counter = 1
+        for loc in loc_names:
+            res += "options.uLoc{" + str(counter) + "} = 0;\n"
+            res += "options.uLocTrans{" + str(counter) + "} = 0;\n"
+            res += "options.Uloc{" + str(counter) + "} ) 0;\n"
+            counter += 1
+
+        res += '\n'
+        counter = 0
+
+        for loc in loc_names:
+            res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str(counter) + ""
+
+        return " "
 
     def __getUnsafeSet(self, line, infile):
         res = ""
