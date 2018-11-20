@@ -288,7 +288,8 @@ class LinHybridFlowStarToCORA:
             if len(b) == 0:
                 err_mes = "One flow expression is wrong! - Added two intervals"
                 sys.exit(err_mes)
-            interval = temp[0]
+            if len(temp) > 0:
+                interval = temp[0]
 
         m = self.__printMatrixToCORA(matrix)
         constants = self.__printMatrixToCORA(b)
@@ -446,14 +447,14 @@ class LinHybridFlowStarToCORA:
                     res += '\n%' + line
                     counter += 1
                 elif 'guard' in line:
-                    line_array = line.split(' ')
-                    rhs = line_array[len(line_array) - 2]
-                    rhs = rhs.replace(' ', '')
-                    operator = line_array[len(line_array) - 3]
-                    operator = operator.replace(' ', '')
-                    lhs = line_array[len(line_array) - 4]
-                    lhs = lhs.replace(' ', '')
-                    res += "guard" + str(counter) + "= " + self.__writeMptPolytope(lhs, operator, rhs, vars)
+                    guards = self.__extractGuards(line)
+                    # rhs = line_array[len(line_array) - 2]
+                    # rhs = rhs.replace(' ', '')
+                    # operator = line_array[len(line_array) - 3]
+                    # operator = operator.replace(' ', '')
+                    # lhs = line_array[len(line_array) - 4]
+                    # lhs = lhs.replace(' ', '')
+                    # res += "guard" + str(counter) + "= " + self.__writeMptPolytope(lhs, operator, rhs, vars)
                 elif 'reset' in line:
                     if '{}' in line:
                         res += "reset" + str(counter) + ".A = eye(" + str(len(vars)) + ");\n"
@@ -464,6 +465,19 @@ class LinHybridFlowStarToCORA:
                 else:
                     res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + str(counter) + ", reset" + str(counter) + ", " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res
+
+    def __extractGuards(self, line):
+        guards = []
+
+        line = line.replace('{','')
+        line = line.replace('}', '')
+        line = line.replace('guard', '')
+        line = line.replace('\n', '')
+        line_array = line.split(' ')
+        array = line_array.remove('')
+        print(array)
+
+        return guards
 
     def __defineLocations(self, loc_names, inv_names):
         res = "\n%define locations----------------------------------------------------------\n\n"

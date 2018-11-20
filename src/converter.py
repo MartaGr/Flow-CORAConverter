@@ -130,5 +130,5 @@ if __name__ == '__main__':
     else:
         conv = NonLinContFlowToCORA()
 
-    conv.convert('/Users/marta/Downloads/two_tanks.model', '/Users/marta/Downloads/two_tanks.m',options)
+    conv.convert('C:/Users/Marta/Desktop/linear hybrid/rod_reactor.model', 'C:/Users/Marta/Desktop/linear hybrid/rod_reactor.m',options)
 
