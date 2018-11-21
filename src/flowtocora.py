@@ -231,7 +231,7 @@ class LinHybridFlowStarToCORA:
                 for v in vars:
                     if v not in vars_contained:
                         # Add dummy
-                        newTerm = '0 * ' + v
+                        newTerm = 'non ' + v
                         f.append(newTerm)
             if constants == 0:
                 # There is no constant
@@ -266,14 +266,13 @@ class LinHybridFlowStarToCORA:
                 c = temp[0].replace(' ', '')
                 if ("-" + v) in c:
                     coefficients.append('-1')
-                elif '0' in c:
+                elif 'non' in c:
                     coefficients.append('0')
                 elif '*' in c:
                     c_array = c.split('*')
                     coefficients.append(c_array[0])
                 else:
                     coefficients.append('1')
-            # entry.append(coefficients)
             matrix.append(coefficients)
 
             # Get the constants
@@ -304,35 +303,36 @@ class LinHybridFlowStarToCORA:
             if inv != []:
                 name = 'inv' + str(counter + 1)
                 inv_names.append(name)
+                counter += 1
+                lhs = []
+                operator = []
+                rhs = []
+                for expr in inv:
+                    res += '%' + expr + '\n'
+                    i = expr.split(' ')
+                    if len(i) < 3:
+                        err_mes = "An invariant has wrong form!"
+                        sys.exit(err_mes)
+                    left = i[len(i) - 3]
+                    left = left.replace(' ', '')
+                    lhs.append(left)
+                    op = i[len(i) - 2]
+                    op = op.replace(' ', '')
+                    operator.append(op)
+                    right = i[len(i) - 1]
+                    right = right.replace(' ', '')
+                    rhs.append(right)
+
+                res += 'inv' + str(counter) + " = " + self.__writeMptPolytope(lhs, operator, rhs, vars) + '\n'
             else:
                 inv_names.append('non')
-            counter += 1
-            lhs = []
-            operator = []
-            rhs = []
-            for expr in inv:
-                res += '%' + expr + '\n'
-                i = expr.split(' ')
-                if len(i) < 3:
-                    err_mes = "An invariant has wrong form!"
-                    sys.exit(err_mes)
-                left = i[len(i) - 3]
-                left = left.replace(' ', '')
-                lhs.append(left)
-                op = i[len(i) - 2]
-                op = op.replace(' ', '')
-                operator.append(op)
-                right = i[len(i) - 1]
-                right = right.replace(' ', '')
-                rhs.append(right)
-            print("invariant")
-            res += 'inv' + str(counter) + " = " + self.__writeMptPolytope(lhs,operator,rhs, vars) + '\n'
+
 
 
         return res, inv_names
 
     def __writeMptPolytope(self, lhs, operator, rhs, vars):
-        res = "mptPolytope(struct('A', "
+        res = ""
         A = []
         b = []
 
@@ -343,7 +343,6 @@ class LinHybridFlowStarToCORA:
             op = op.replace('\n', '')
             right = rhs[i].replace('\t','')
             right = right.replace('\n', '')
-            print("left: ", left, " op:", op, " right: ", right)
 
             try:
                 var_index = vars.index(left)
@@ -389,8 +388,7 @@ class LinHybridFlowStarToCORA:
         if len(A) > 0:
             A_matlab = self.__printMatrixToCORA(A)
             b_matlab = self.__printVectorToCORA(b)
-            print(A_matlab + ", 'b', " + b_matlab)
-            res += A_matlab + ", 'b', " + b_matlab + "));\n"
+            res += "mptPolytope(struct('A', "+ A_matlab + ", 'b', " + b_matlab + "));\n"
         else:
             # There is no guard or invariant
             # TODO what does CORA do with this???
@@ -430,7 +428,6 @@ class LinHybridFlowStarToCORA:
 
     def __getJumps(self, start, infile, vars, locations):
         res = "\n%define transitions--------------------------------------------------------\n"
-
         loc_dict = {}
         for l in locations:
             loc_dict[l] = 0
@@ -460,28 +457,33 @@ class LinHybridFlowStarToCORA:
                     res += '\n%' + line
                     counter += 1
                 elif 'guard' in line:
-                    res += self.__extractGuards(line, vars)
+                    res += self.__extractConstraints(line, 'guard', vars)
                 elif 'reset' in line:
-                    if '{}' in line:
-                        res += "reset" + str(counter) + ".A = eye(" + str(len(vars)) + ");\n"
-                        res += "reset" + str(counter) + ".b = zeros(" + str(len(vars)) + ", 1);\n"
+                    if '{ }' in line:
+                        res += "reset.A = eye(" + str(len(vars)) + ");\n"
+                        res += "reset.b = zeros(" + str(len(vars)) + ", 1);\n"
+                    else:
+                        res += self.__extractConstraints(line, 'reset', vars)
+                    counter += 1
                 elif 'parallelotope' in line:
                     # TODO What is this?
                     pass
                 else:
-                    res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + str(counter) + ", reset" + str(counter) + ", " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
+                    res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + ", reset, " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res
 
-    def __extractGuards(self, line, vars):
+    def __extractConstraints(self, line, name, vars, c =0):
         res = ""
         line = line.replace('{','')
         line = line.replace('}', '')
-        line = line.replace('guard', '')
+        line = line.replace(name, '')
         line = line.replace('\n', '')
         line = line.replace('\t','')
+        line = line.replace("'",'')
         line_array = line.split(' ')
         res += "%" + line +'\n'
         line_array = [x for x in line_array if len(x) > 0]
+
         counter = 0
         number_guards = 0
         lhs = []
@@ -494,30 +496,57 @@ class LinHybridFlowStarToCORA:
                     number_guards += 1
                     counter += 1
                 else:
-                    sys.exit("Guard error: Undefined variable: " + term)
+                    sys.exit(" Undefined variable: " + term)
             elif counter == 1:
                 if '=' in term or '>' in term or '<' in term:
                     operator.append(term)
                     counter +=1
                 else:
-                    sys.exit("Guard error: the guard has to have the form [var] [operator] [constant]")
+                    sys.exit("Constraint has to have the form [var] [operator] [constant]")
             elif counter == 2:
                 if self.__isNumber(term):
                     rhs.append(term)
                     counter = 0
                 else:
-                    sys.exit("Guard error: the guard has to have the form [var] [operator] [constant]")
+                    sys.exit("Constraint has to have the form [var] [operator] [constant]")
             else:
                 pass
 
 
-        if number_guards == 0:
+        if name == 'guard' and number_guards == 0:
             #TODO is it possible in CORA?
             return res
-        else:
+        elif name == 'guard':
             res += "guard = " +  self.__writeMptPolytope(lhs, operator, rhs, vars)
+        elif name == 'reset':
+            res += self.__writeReset(lhs, operator, rhs,vars, c=counter)
+        else:
+            sys.exit("Wrong name")
 
         return res
+
+    def __writeReset(self, lhs, operator, rhs, vars, c =0):
+        res = ""
+        A = []
+        for i in range(len(lhs)):
+            if '>' in operator[i] or '<' in operator[i]:
+                sys.exit("Reset have to be an :=")
+            else:
+                var_index = vars.index(lhs[i])
+                for k in range(len(vars)):
+                    entry = []
+                    for v in range(len(vars)):
+                        if v == var_index and k == var_index:
+                            entry.append('0')
+                        elif v == k :
+                            entry.append('1')
+                        else:
+                            entry.append('0')
+                    A.append(entry)
+        rhs.append(rhs[0])
+        res += "reset.A = " + self.__printMatrixToCORA(A) + ";\n"
+        res += "reset.b = " + self.__printVectorToCORA(rhs) + ";\n"
+        return  res
 
     def __defineLocations(self, loc_names, inv_names):
         res = "\n%define locations----------------------------------------------------------\n\n"
@@ -563,9 +592,9 @@ class LinHybridFlowStarToCORA:
         res += "options.taylorTerms = " + str(options['taylor']) + ";\n"
         res += "options.zonotopeOrder = " + str(options['zonotope']) + ";\n"
         res += "options.polytopeOrder = " + str(options['polytope']) + ";\n"
-        res += "options.reductionTechnique = " + str(options['reduction']) + ";\n"
+        res += "options.reductionTechnique = '" + str(options['reduction']) + "';\n"
         res += "options.isHyperplaneMap = " + str(options['hyperplane']) + ";\n"
-        res += "options.guardIntersect = " + str(options['guard']) + ";\n"
+        res += "options.guardIntersect = '" + str(options['guard']) + "';\n"
         res += "options.enclosureEnables = " + str(options['enclosure']) + ";\n"
         res += "options.originContained = " + str(options['origin']) + ";\n"
 
@@ -578,6 +607,8 @@ class LinHybridFlowStarToCORA:
         name = name.replace('.model', '')
         res = self.__readFile(infile, options, name)
         print(res)
+
+
 
 
 class NonLinHybridFlowToCORA:
