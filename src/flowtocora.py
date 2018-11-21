@@ -306,23 +306,28 @@ class LinHybridFlowStarToCORA:
                 inv_names.append(name)
             else:
                 inv_names.append('non')
-            cnt = 1
             counter += 1
+            lhs = []
+            operator = []
+            rhs = []
             for expr in inv:
                 res += '%' + expr + '\n'
                 i = expr.split(' ')
                 if len(i) < 3:
                     err_mes = "An invariant has wrong form!"
                     sys.exit(err_mes)
-                lhs = i[len(i) - 3]
-                lhs = lhs.replace(' ', '')
-                operator = i[len(i) - 2]
-                operator = operator.replace(' ', '')
-                rhs = i[len(i) - 1]
-                rhs = rhs.replace(' ', '')
+                left = i[len(i) - 3]
+                left = left.replace(' ', '')
+                lhs.append(left)
+                op = i[len(i) - 2]
+                op = op.replace(' ', '')
+                operator.append(op)
+                right = i[len(i) - 1]
+                right = right.replace(' ', '')
+                rhs.append(right)
+            print("invariant")
+            res += 'inv' + str(counter) + " = " + self.__writeMptPolytope(lhs,operator,rhs, vars) + '\n'
 
-                res += 'inv' + str(counter) + "{" + str(cnt) + "} = " + self.__writeMptPolytope(lhs,operator,rhs, vars) + '\n'
-                cnt += 1
 
         return res, inv_names
 
@@ -331,57 +336,65 @@ class LinHybridFlowStarToCORA:
         A = []
         b = []
 
-        if lhs in vars:
-            var_index = vars.index(lhs)
+        for i in range(len(lhs)):
+            left = lhs[i].replace('\t','')
+            left = left.replace('\n','')
+            op = operator[i].replace('\t','')
+            op = op.replace('\n', '')
+            right = rhs[i].replace('\t','')
+            right = right.replace('\n', '')
+            print("left: ", left, " op:", op, " right: ", right)
+
             try:
-                constant = float(rhs)
+                var_index = vars.index(left)
+                constant = float(right)
             except ValueError:
-                sys.exit("An invariant has wrong format")
-        else:
-            var_index = vars.index(rhs)
-            try:
-                constant = float(lhs)
-            except ValueError:
-                sys.exit("An invariant has wrong format")
-        if operator == '=':
-            b = [str(-constant), str(constant)]
-            for k in range(2):
+                expr = left + op + right
+                sys.exit("Wrong format: " + expr)
+            if op == '=':
+                b.append(str(-constant))
+                b.append(str(constant))
+                for k in range(2):
+                    entry = []
+                    for v in range(len(vars)):
+                        if v == var_index and k == 0:
+                            entry.append('-1')
+                        elif v == var_index and k == 1:
+                            entry.append('1')
+                        else:
+                            entry.append('0')
+                    A.append(entry)
+            elif op == "<=":
+                b.append(str(constant))
                 entry = []
                 for v in range(len(vars)):
-                    if v == var_index and k == 0:
-                        entry.append('-1')
-                    elif v == var_index and k == 1:
+                    if v == var_index:
                         entry.append('1')
                     else:
                         entry.append('0')
                 A.append(entry)
-        elif operator == "<=":
-            b = [str(constant)]
-            entry = []
-            for v in range(len(vars)):
-                if v == var_index:
-                    entry.append('1')
-                else:
-                    entry.append('0')
-            A.append(entry)
-        elif operator == ">=":
-            A = []
-            b = [str(-constant)]
-            entry = []
-            for v in range(len(vars)):
-                if v == var_index:
-                    entry.append('-1')
-                else:
-                    entry.append('0')
-            A.append(entry)
+            elif op == ">=":
+                b.append(str(-constant))
+                entry = []
+                for v in range(len(vars)):
+                    if v == var_index:
+                        entry.append('-1')
+                    else:
+                        entry.append('0')
+                A.append(entry)
+            else:
+                err_mes = "One operand for invarinant is written wrong!"
+                sys.exit(err_mes)
+
+        if len(A) > 0:
+            A_matlab = self.__printMatrixToCORA(A)
+            b_matlab = self.__printVectorToCORA(b)
+            print(A_matlab + ", 'b', " + b_matlab)
+            res += A_matlab + ", 'b', " + b_matlab + "));\n"
         else:
-            err_mes = "One operand for invarinant is written wrong!"
-            sys.exit(err_mes)
-
-        A_matlab = self.__printMatrixToCORA(A)
-        b_matlab = self.__printVectorToCORA(b)
-
-        res += A_matlab + ", 'b', " + b_matlab + "));\n"
+            # There is no guard or invariant
+            # TODO what does CORA do with this???
+            res += ""
         return res
 
     def __printMatrixToCORA(self, matrix):
@@ -447,14 +460,7 @@ class LinHybridFlowStarToCORA:
                     res += '\n%' + line
                     counter += 1
                 elif 'guard' in line:
-                    guards = self.__extractGuards(line)
-                    # rhs = line_array[len(line_array) - 2]
-                    # rhs = rhs.replace(' ', '')
-                    # operator = line_array[len(line_array) - 3]
-                    # operator = operator.replace(' ', '')
-                    # lhs = line_array[len(line_array) - 4]
-                    # lhs = lhs.replace(' ', '')
-                    # res += "guard" + str(counter) + "= " + self.__writeMptPolytope(lhs, operator, rhs, vars)
+                    res += self.__extractGuards(line, vars)
                 elif 'reset' in line:
                     if '{}' in line:
                         res += "reset" + str(counter) + ".A = eye(" + str(len(vars)) + ");\n"
@@ -466,18 +472,52 @@ class LinHybridFlowStarToCORA:
                     res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + str(counter) + ", reset" + str(counter) + ", " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res
 
-    def __extractGuards(self, line):
-        guards = []
-
+    def __extractGuards(self, line, vars):
+        res = ""
         line = line.replace('{','')
         line = line.replace('}', '')
         line = line.replace('guard', '')
         line = line.replace('\n', '')
+        line = line.replace('\t','')
         line_array = line.split(' ')
-        array = line_array.remove('')
-        print(array)
+        res += "%" + line +'\n'
+        line_array = [x for x in line_array if len(x) > 0]
+        counter = 0
+        number_guards = 0
+        lhs = []
+        rhs = []
+        operator = []
+        for term in line_array:
+            if counter == 0:
+                if term in vars:
+                    lhs.append(term)
+                    number_guards += 1
+                    counter += 1
+                else:
+                    sys.exit("Guard error: Undefined variable: " + term)
+            elif counter == 1:
+                if '=' in term or '>' in term or '<' in term:
+                    operator.append(term)
+                    counter +=1
+                else:
+                    sys.exit("Guard error: the guard has to have the form [var] [operator] [constant]")
+            elif counter == 2:
+                if self.__isNumber(term):
+                    rhs.append(term)
+                    counter = 0
+                else:
+                    sys.exit("Guard error: the guard has to have the form [var] [operator] [constant]")
+            else:
+                pass
 
-        return guards
+
+        if number_guards == 0:
+            #TODO is it possible in CORA?
+            return res
+        else:
+            res += "guard = " +  self.__writeMptPolytope(lhs, operator, rhs, vars)
+
+        return res
 
     def __defineLocations(self, loc_names, inv_names):
         res = "\n%define locations----------------------------------------------------------\n\n"
