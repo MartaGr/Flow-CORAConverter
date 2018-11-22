@@ -155,7 +155,17 @@ class LinHybridFlowStarToCORA:
                     line = file.readline()
                     while '}' not in line:
                         it = line.replace('\n', '')
-                        inv.append(it)
+                        if 'in' in it:
+                            # Invariant is given in interval representation
+                            line_array = it.split('in')
+                            var = line_array[0]
+                            interval = line_array[1].replace('[','')
+                            interval = interval.replace(']', '')
+                            interval = interval.split(',')
+                            inv.append(var + " >= " + interval[0])
+                            inv.append(var + " <= " + interval[1])
+                        else:
+                            inv.append(it)
                         line = file.readline()
                     invariants.append(inv)
                     inv_area = False
@@ -169,7 +179,7 @@ class LinHybridFlowStarToCORA:
             loc_names.remove('')
 
         sL = options['initState']
-        startLoc = loc_names.index(sL)
+        startLoc = loc_names.index(sL) + 1
         res += "options.startLoc = " + str(startLoc) + ";\n"
         res += "options.finalLoc = 0;\n"
         res += "options.tStart = 0;\n"
@@ -177,8 +187,8 @@ class LinHybridFlowStarToCORA:
         res += "options.tFinal = " + tFinal + ";\n"
 
         stepSize = options['stepSize']
-        for i in range(1, len(loc_names)):
-            res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n\n"
+        for i in range(1, len(loc_names) + 1):
+            res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
         res += "%define flows--------------------------------------------------------------\n\n"
         res += self.__constructFlows(flows, options['stateVars'])
@@ -237,8 +247,8 @@ class LinHybridFlowStarToCORA:
                 # There is no constant
                 f.append('0')
             if constants > 1:
-                errMes = "The expression for flow is not minimal! - Add the constants"
-                sys.exit(errMes)
+                err_mes = "The expression for flow is not minimal! - Add the constants"
+                sys.exit(err_mes)
         return flow
 
     def __flowToMatrix(self, flow, vars):
@@ -250,13 +260,16 @@ class LinHybridFlowStarToCORA:
         """
         matrix = []
         b = []
+        print(vars)
         interval = ''
         for f in flow:
             entry = []
             coefficients = []
             # Get the coefficients for variables
             for v in vars:
-                temp = [x for x in f if (v in x)]
+
+                temp = [x for x in f if self.__isVariableInTerm(v,x)]
+                print(temp)
                 if len(temp) > 1:
                     err_mes = 'The expression for flow is not minimal! - Add the coefficients for variable ' + v
                     sys.exit(err_mes)
@@ -294,6 +307,27 @@ class LinHybridFlowStarToCORA:
         constants = self.__printMatrixToCORA(b)
         return m, constants, interval
 
+
+    def __isVariableInTerm(self, var,term):
+        print("var: ", var, "term: ",term)
+        if var == term:
+            print("True")
+            return True
+        elif '*' in term:
+            term_array = term.split('*')
+            v = term_array[1]
+            if var == v:
+                print("True")
+                return True
+        elif 'non' in term:
+            term_array = term.split(' ')
+            v = term_array[1]
+            if var == v:
+                print("True")
+                return True
+        else:
+            return False
+
     def __constructInvariants(self, loc_names, invariants, vars):
         res = ""
         counter = 0
@@ -310,6 +344,8 @@ class LinHybridFlowStarToCORA:
                 for expr in inv:
                     res += '%' + expr + '\n'
                     i = expr.split(' ')
+                    while '' in i:
+                        i.remove('')
                     if len(i) < 3:
                         err_mes = "An invariant has wrong form!"
                         sys.exit(err_mes)
@@ -326,8 +362,6 @@ class LinHybridFlowStarToCORA:
                 res += 'inv' + str(counter) + " = " + self.__writeMptPolytope(lhs, operator, rhs, vars) + '\n'
             else:
                 inv_names.append('non')
-
-
 
         return res, inv_names
 
@@ -501,14 +535,26 @@ class LinHybridFlowStarToCORA:
                 if '=' in term or '>' in term or '<' in term:
                     operator.append(term)
                     counter +=1
+                elif 'in' in term:
+                    lhs.append(lhs[-1])
+                    number_guards += 1
+                    counter += 1
+                    operator.append('>=')
+                    operator.append('<=')
                 else:
-                    sys.exit("Constraint has to have the form [var] [operator] [constant]")
+                    sys.exit("Constraint has to have the form [var] [operator] [constant] (wrong position of the operator): " + term)
             elif counter == 2:
-                if self.__isNumber(term):
+                if self.__isNumber(term) or '*' in term or term in vars:
                     rhs.append(term)
                     counter = 0
+                elif '[' in term:
+                    term = term.replace('[','')
+                    term = term.replace(']','')
+                    interval = term.split(',')
+                    rhs.append(interval[0])
+                    rhs.append(interval[1])
                 else:
-                    sys.exit("Constraint has to have the form [var] [operator] [constant]")
+                    sys.exit("Constraint has to have the form [var] [operator] [constant]: " +term)
             else:
                 pass
 
@@ -528,11 +574,14 @@ class LinHybridFlowStarToCORA:
     def __writeReset(self, lhs, operator, rhs, vars, c =0):
         res = ""
         A = []
+        b = []
+        var_indeces =[]
         for i in range(len(lhs)):
             if '>' in operator[i] or '<' in operator[i]:
                 sys.exit("Reset have to be an :=")
             else:
                 var_index = vars.index(lhs[i])
+                var_indeces.append(var_index)
                 for k in range(len(vars)):
                     entry = []
                     for v in range(len(vars)):
@@ -543,9 +592,25 @@ class LinHybridFlowStarToCORA:
                         else:
                             entry.append('0')
                     A.append(entry)
-        rhs.append(rhs[0])
+
+        counter = 0
+        for i in range(len(vars)):
+            if i in var_indeces:
+                if self.__isNumber(rhs[counter]):
+                    b.append(rhs[counter])
+                elif '*' in rhs[counter]:
+                    l = rhs[counter].split('*')
+                    con = l[0].replace(' ', '')
+                    A[i][i] = con
+                    b.append('0')
+                else:
+                    A[i][i] = 1
+                    b.append('0')
+                counter += 1
+            else:
+                b.append('0')
         res += "reset.A = " + self.__printMatrixToCORA(A) + ";\n"
-        res += "reset.b = " + self.__printVectorToCORA(rhs) + ";\n"
+        res += "reset.b = " + self.__printVectorToCORA(b) + ";\n"
         return  res
 
     def __defineLocations(self, loc_names, inv_names):
@@ -554,7 +619,7 @@ class LinHybridFlowStarToCORA:
         for loc in loc_names:
             res += "options.uLoc{" + str(counter) + "} = 0;\n"
             res += "options.uLocTrans{" + str(counter) + "} = 0;\n"
-            res += "options.Uloc{" + str(counter) + "} = 0;\n\n"
+            res += "options.Uloc{" + str(counter) + "} = zonotope(0);\n\n"
             counter += 1
 
         res += '\n'

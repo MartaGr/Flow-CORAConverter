@@ -117,7 +117,7 @@ if __name__ == '__main__':
                'polytope': '10',
                'guard': 'polytope',
                'reduction': 'girard',
-               'enclosure': '0',
+               'enclosure': '5',
                'hyperplane': '0',
                'origin': '0'}
 
@@ -130,5 +130,5 @@ if __name__ == '__main__':
     else:
         conv = NonLinContFlowToCORA()
 
-    conv.convert('C:/Users/Marta/Desktop/linear hybrid/rod_reactor.model', 'C:/Users/Marta/Desktop/linear hybrid/rod_reactor.m',options)
+    conv.convert('C:/Users/Marta/Desktop/linear hybrid/filtered_oscillator_4.model', 'C:/Users/Marta/Desktop/linear hybrid/cruise_control.m',options)
 
