@@ -229,7 +229,7 @@ class LinHybridFlowStarToCORA:
             # Check which variables are contained in the expression
             for term in f:
                 for v in vars:
-                    if v in term:
+                    if self.__isVariableInTerm(v,term):
                         vars_contained.append(v)
                 # Check if a constant is contained in the expression
                 if self.__isNumber(term):
@@ -267,7 +267,6 @@ class LinHybridFlowStarToCORA:
             coefficients = []
             # Get the coefficients for variables
             for v in vars:
-
                 temp = [x for x in f if self.__isVariableInTerm(v,x)]
                 print(temp)
                 if len(temp) > 1:
@@ -309,7 +308,10 @@ class LinHybridFlowStarToCORA:
 
 
     def __isVariableInTerm(self, var,term):
-        print("var: ", var, "term: ",term)
+        print("var: ", var, "term: ", term)
+        if '-' in term:
+            term = term.replace('-','')
+            term = term.replace(' ', '')
         if var == term:
             print("True")
             return True
@@ -320,8 +322,7 @@ class LinHybridFlowStarToCORA:
                 print("True")
                 return True
         elif 'non' in term:
-            term_array = term.split(' ')
-            v = term_array[1]
+            v = term.replace('non ','')
             if var == v:
                 print("True")
                 return True
