@@ -59,7 +59,7 @@ class LinHybridFlowStarToCORA:
         temp, loc_names, inv_names = self.__getModes(modes_line, infile, options)
         res += temp
         res += self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
-        res += self.__defineLocations(loc_names, inv_names)
+#        res += self.__defineLocations(loc_names, inv_names)
         res += self.__defineHybridAutomaton()
         res += self.__drawReachableSet()
 
@@ -191,16 +191,19 @@ class LinHybridFlowStarToCORA:
             res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
         res += "%define flows--------------------------------------------------------------\n\n"
-        res += self.__constructFlows(flows, options['stateVars'])
+        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow')
         res += "%define invariants---------------------------------------------------------\n\n"
-        temp, inv_names= self.__constructInvariants(loc_names, invariants, options['stateVars'])
-        res += temp
+        res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant')
+        #temp, inv_names= self.__constructInvariants(loc_names, invariants, options['stateVars'])
+        #res += temp
+        inv_names = []
         return res, loc_names, inv_names
 
-    def __constructFlows(self,flows, vars):
+    def __constructFromConstraints(self, constraints, vars, name):
         res = ""
         counter = 1
-        for flow in flows:
+        print(constraints)
+        for flow in constraints:
             single_flow = []
             for direc in flow:
                 direc = direc.replace('- ', '+ -')
@@ -208,15 +211,22 @@ class LinHybridFlowStarToCORA:
 
             normalized_flow = self.__normalize(single_flow, vars)
             A, b, inter = self.__constraintsToMatrix(normalized_flow, vars)
-            A_matlab = self.__printMatrixToCORA(A)
-            b_matlab = self.__printMatrixToCORA(b)
-            res += 'A' + str(counter) + " = " + A_matlab + ';\n'
-            res += 'B' + str(counter) + ' = zeros(' + str(len(vars)) + ", 1);\n"
-            res += 'c' + str(counter) + " = " + b_matlab + ';\n'
-            # TODO What to do with the intervals???
-            res += "flow" + str(counter) + " = linearSys('linearSys" + str(counter) + "', A" + str(
-                counter) + ", B" + str(counter) + ", c" + str(counter) + ");\n\n"
-            counter += 1
+
+            if name == 'flow':
+                A_matlab = self.__printMatrixToCORA(A)
+                b_matlab = self.__printMatrixToCORA(b)
+                res += 'A' + str(counter) + " = " + A_matlab + ';\n'
+                res += 'B' + str(counter) + ' = zeros(' + str(len(vars)) + ", 1);\n"
+                res += 'c' + str(counter) + " = " + b_matlab + ';\n'
+                # TODO What to do with the intervals???
+                res += "flow" + str(counter) + " = linearSys('linearSys" + str(counter) + "', A" + str(
+                    counter) + ", B" + str(counter) + ", c" + str(counter) + ");\n\n"
+                counter += 1
+            elif name == 'invariant':
+                sys.exit("Not Implemented: Invariant")
+            elif name == 'guard':
+                res += "guard"
+                sys.exit("Not Implemented: Guard")
 
         return res
 
@@ -329,6 +339,9 @@ class LinHybridFlowStarToCORA:
         counter = 0
         lhs = []
         rhs = []
+
+        print("Invariants: ", invariants)
+
         operators = []
         for inv in invariants:
             single_inv = []
@@ -470,14 +483,24 @@ class LinHybridFlowStarToCORA:
                     res += '\n%' + line
                     counter += 1
                 elif 'guard' in line:
-                    print("guard")
-                    res += self.__extractConstraints(line, 'guard', vars)
+                    line = line.replace('\n','')
+                    line = line.replace('}','')
+                    line = line.replace('{', '')
+                    line = line.replace('guard', '')
+
+                    line_array = line.split('   ')
+
+                    while '' in line_array:
+                        line_array.remove('')
+
+                    self.__constructFromConstraints(line_array, vars, 'guard')
                 elif 'reset' in line:
                     if '{ }' in line:
                         res += "reset.A = eye(" + str(len(vars)) + ");\n"
                         res += "reset.b = zeros(" + str(len(vars)) + ", 1);\n"
                     else:
                         res += self.__extractConstraints(line, 'reset', vars)
+
                     counter += 1
                 elif 'parallelotope' in line:
                     # TODO What is this?
@@ -486,7 +509,7 @@ class LinHybridFlowStarToCORA:
                     res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + ", reset, " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res
 
-    def __extractConstraints(self, line, name, vars, c =0):
+    def __extractConstraints(self, line, name, vars, c = 0):
         res = ""
         line = line.replace('{','')
         line = line.replace('}', '')
