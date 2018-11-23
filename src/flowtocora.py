@@ -200,17 +200,19 @@ class LinHybridFlowStarToCORA:
     def __constructFlows(self,flows, vars):
         res = ""
         counter = 1
-
         for flow in flows:
             single_flow = []
             for direc in flow:
                 direc = direc.replace('- ', '+ -')
                 single_flow.append(direc.split(' + '))
+
             normalized_flow = self.__normalize(single_flow, vars)
-            A, b, inter = self.__flowToMatrix(normalized_flow, vars)
-            res += 'A' + str(counter) + " = " + A + ';\n'
+            A, b, inter = self.__constraintsToMatrix(normalized_flow, vars)
+            A_matlab = self.__printMatrixToCORA(A)
+            b_matlab = self.__printMatrixToCORA(b)
+            res += 'A' + str(counter) + " = " + A_matlab + ';\n'
             res += 'B' + str(counter) + ' = zeros(' + str(len(vars)) + ", 1);\n"
-            res += 'c' + str(counter) + " = " + b + ';\n'
+            res += 'c' + str(counter) + " = " + b_matlab + ';\n'
             # TODO What to do with the intervals???
             res += "flow" + str(counter) + " = linearSys('linearSys" + str(counter) + "', A" + str(
                 counter) + ", B" + str(counter) + ", c" + str(counter) + ");\n\n"
@@ -228,6 +230,7 @@ class LinHybridFlowStarToCORA:
             constants = 0
             # Check which variables are contained in the expression
             for term in f:
+                term = term.replace(' ','') # THIS
                 for v in vars:
                     if self.__isVariableInTerm(v,term):
                         vars_contained.append(v)
@@ -251,29 +254,27 @@ class LinHybridFlowStarToCORA:
                 sys.exit(err_mes)
         return flow
 
-    def __flowToMatrix(self, flow, vars):
+    def __constraintsToMatrix(self, constraints, vars):
         """
-        This method converts a linear flow into a Matlab format of matrix
-        :param flow: string containing the flow
+        This method converts a linear constraints into a Matlab format of matrix
+        :param constraints: string containing the constraints
         :param vars: state variables
-        :return: string containing the flow in matrix form
+        :return: string containing the constraints in matrix form
         """
         matrix = []
         b = []
-        print(vars)
         interval = ''
-        for f in flow:
+        for f in constraints:
             entry = []
             coefficients = []
             # Get the coefficients for variables
             for v in vars:
                 temp = [x for x in f if self.__isVariableInTerm(v,x)]
-                print(temp)
                 if len(temp) > 1:
-                    err_mes = 'The expression for flow is not minimal! - Add the coefficients for variable ' + v
+                    err_mes = 'The expression for constraints is not minimal! - Add the coefficients for variable ' + v
                     sys.exit(err_mes)
                 if len(temp) == 0:
-                    err_mes = "A coefficient in flow is wrongly written!"
+                    err_mes = "A coefficient in constraints is wrongly written!"
                     sys.exit(err_mes)
                 c = temp[0].replace(' ', '')
                 if ("-" + v) in c:
@@ -290,41 +291,35 @@ class LinHybridFlowStarToCORA:
             # Get the constants
             temp = [x for x in f if self.__isNumber(x)]
             if len(temp) == 0:
-                err_mes = "In one of the flow expressions is no constant! - Add a 0"
+                err_mes = "In one of the constraints expressions is no constant! - Add a 0"
                 sys.exit(err_mes)
             b.append(temp)
 
             # Get intervals
             temp = [term for term in f if '[' in term]
             if len(b) == 0:
-                err_mes = "One flow expression is wrong! - Added two intervals"
+                err_mes = "One constraints expression is wrong! - Added two intervals"
                 sys.exit(err_mes)
             if len(temp) > 0:
                 interval = temp[0]
 
-        m = self.__printMatrixToCORA(matrix)
-        constants = self.__printMatrixToCORA(b)
-        return m, constants, interval
-
+        return matrix, b, interval
 
     def __isVariableInTerm(self, var,term):
-        print("var: ", var, "term: ", term)
+        term = term.replace(' ','')
         if '-' in term:
             term = term.replace('-','')
             term = term.replace(' ', '')
         if var == term:
-            print("True")
             return True
         elif '*' in term:
             term_array = term.split('*')
             v = term_array[1]
             if var == v:
-                print("True")
                 return True
         elif 'non' in term:
-            v = term.replace('non ','')
+            v = term.replace('non','')
             if var == v:
-                print("True")
                 return True
         else:
             return False
@@ -332,102 +327,85 @@ class LinHybridFlowStarToCORA:
     def __constructInvariants(self, loc_names, invariants, vars):
         res = ""
         counter = 0
-        inv_names = []
-
+        lhs = []
+        rhs = []
+        operators = []
         for inv in invariants:
-            if inv != []:
-                name = 'inv' + str(counter + 1)
-                inv_names.append(name)
+            single_inv = []
+            for i in inv:
+                if '>' in i:
+                    operators.append('>=')
+                    inv_array = i.split('>=')
+                    not_normalized_lhs = inv_array[0]
+                    rhs.append(inv_array[1])
+                elif '<' in i:
+                    operators.append('<=')
+                    inv_array = i.split('<=')
+                    not_normalized_lhs = inv_array[0]
+                    rhs.append(inv_array[1])
+                elif '=' in i:
+                    operators.append('=')
+                    inv_array = i.split('=')
+                    not_normalized_lhs = inv_array[0]
+                    rhs.append(inv_array[1])
+                else:
+                    sys.exit("Wrong operator " + i)
+
+                not_normalized_lhs = not_normalized_lhs.replace('- ', '+ -')
+                single_inv.append(not_normalized_lhs.split(' + '))
+
+            if single_inv != []:
+                normalized_lhs = self.__normalize(single_inv, vars)
+                lhs.append(normalized_lhs)
                 counter += 1
-                lhs = []
-                operator = []
-                rhs = []
-                for expr in inv:
-                    res += '%' + expr + '\n'
-                    i = expr.split(' ')
-                    while '' in i:
-                        i.remove('')
-                    if len(i) < 3:
-                        err_mes = "An invariant has wrong form!"
-                        sys.exit(err_mes)
-                    left = i[len(i) - 3]
-                    left = left.replace(' ', '')
-                    lhs.append(left)
-                    op = i[len(i) - 2]
-                    op = op.replace(' ', '')
-                    operator.append(op)
-                    right = i[len(i) - 1]
-                    right = right.replace(' ', '')
-                    rhs.append(right)
-
-                res += 'inv' + str(counter) + " = " + self.__writeMptPolytope(lhs, operator, rhs, vars) + '\n'
             else:
-                inv_names.append('non')
-
-        return res, inv_names
-
-    def __writeMptPolytope(self, lhs, operator, rhs, vars):
-        res = ""
-        A = []
-        b = []
-
+                lhs.append([])
         for i in range(len(lhs)):
-            left = lhs[i].replace('\t','')
-            left = left.replace('\n','')
-            op = operator[i].replace('\t','')
-            op = op.replace('\n', '')
-            right = rhs[i].replace('\t','')
-            right = right.replace('\n', '')
+            if lhs[i] != []:
+                min = i * (len(lhs) - 1)
+                max = min + (len(lhs) - 2)
+                op = operators[min:max]
+                A, b, inter = self.__constraintsToMatrix(lhs[i], vars)
+                res += 'inv_' + loc_names[i] + " =  " + self.__writeMptPolytope(A, b, op, vars)
 
-            try:
-                var_index = vars.index(left)
-                constant = float(right)
-            except ValueError:
-                expr = left + op + right
-                sys.exit("Wrong format: " + expr)
-            if op == '=':
-                b.append(str(-constant))
-                b.append(str(constant))
-                for k in range(2):
-                    entry = []
-                    for v in range(len(vars)):
-                        if v == var_index and k == 0:
-                            entry.append('-1')
-                        elif v == var_index and k == 1:
-                            entry.append('1')
-                        else:
-                            entry.append('0')
-                    A.append(entry)
-            elif op == "<=":
-                b.append(str(constant))
-                entry = []
-                for v in range(len(vars)):
-                    if v == var_index:
-                        entry.append('1')
-                    else:
-                        entry.append('0')
-                A.append(entry)
-            elif op == ">=":
-                b.append(str(-constant))
-                entry = []
-                for v in range(len(vars)):
-                    if v == var_index:
-                        entry.append('-1')
-                    else:
-                        entry.append('0')
-                A.append(entry)
-            else:
-                err_mes = "One operand for invarinant is written wrong!"
-                sys.exit(err_mes)
+        return res, []
 
-        if len(A) > 0:
-            A_matlab = self.__printMatrixToCORA(A)
-            b_matlab = self.__printVectorToCORA(b)
-            res += "mptPolytope(struct('A', "+ A_matlab + ", 'b', " + b_matlab + "));\n"
-        else:
-            # There is no guard or invariant
-            # TODO what does CORA do with this???
-            res += ""
+    def __writeMptPolytope(self, A, b, operators, vars):
+        add_constr = []
+        add_b = []
+
+        for i in range(len(operators)):
+            if operators[i] == '>=':
+                if b[i][0] != '0':
+                    b[i][0] = '-' + b[i][0]
+                for j in range(len(A[i])):
+                    if A[i][j] != '0':
+                        A[i][j] = '-' + A[i][j]
+            elif operators[i] == '=':
+                if b[i][0] != '0':
+                    new_b = '-' + b[i][0]
+                else:
+                    new_b = '0'
+                new_A_line = []
+                for j in range(len(A[i])):
+                    if A[i][j] != '0':
+                        new_A_line.append('-' + A[i][j])
+                    else:
+                        new_A_line.append('0')
+                add_constr.append(new_A_line)
+                add_b.append(new_b)
+
+        for item in add_constr:
+            A.append(item)
+        for item in add_b:
+            b.append(item)
+
+        A_matlab = self.__printMatrixToCORA(A)
+        b_matlab = self.__printMatrixToCORA(b)
+
+        res = "mptPolytope(struct('A', "+ A_matlab + ", 'b', " + b_matlab + "));\n"
+       # print(res)
+
         return res
 
     def __printMatrixToCORA(self, matrix):
@@ -492,6 +470,7 @@ class LinHybridFlowStarToCORA:
                     res += '\n%' + line
                     counter += 1
                 elif 'guard' in line:
+                    print("guard")
                     res += self.__extractConstraints(line, 'guard', vars)
                 elif 'reset' in line:
                     if '{ }' in line:
