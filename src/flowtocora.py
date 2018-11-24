@@ -59,7 +59,7 @@ class LinHybridFlowStarToCORA:
         temp, loc_names, inv_names = self.__getModes(modes_line, infile, options)
         res += temp
         res += self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
-        #res += self.__defineLocations(loc_names, inv_names)
+        res += self.__defineLocations(loc_names, inv_names)
         res += self.__defineHybridAutomaton()
         res += self.__drawReachableSet()
 
@@ -624,11 +624,7 @@ class LinHybridFlowStarToCORA:
         counter = 1
 
         for loc in loc_names:
-            if inv_names[counter - 1] != "non":
-                inv = "inv" + str(counter)
-            else:
-                inv = '0'
-            res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str (counter) + ", " + inv + ", trans_"+ loc_names[counter - 1] + ", flow" + str(counter) + ");\n"
+            res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str (counter) + ", " + "inv_" + loc + ", trans_"+ loc_names[counter - 1] + ", flow" + str(counter) + ");\n"
             counter += 1
 
         return res
