@@ -59,7 +59,7 @@ class LinHybridFlowStarToCORA:
         temp, loc_names, inv_names = self.__getModes(modes_line, infile, options)
         res += temp
         res += self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
-#        res += self.__defineLocations(loc_names, inv_names)
+        #res += self.__defineLocations(loc_names, inv_names)
         res += self.__defineHybridAutomaton()
         res += self.__drawReachableSet()
 
@@ -144,8 +144,7 @@ class LinHybridFlowStarToCORA:
                     fl = []
                     line = file.readline()
                     while '}' not in line:
-                        line = line.split('=')
-                        f = line[len(line) - 1].replace('\n', '')
+                        f = line.replace('\n', '')
                         fl.append(f)
                         line = file.readline()
                     flows.append(fl)
@@ -191,62 +190,97 @@ class LinHybridFlowStarToCORA:
             res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
         res += "%define flows--------------------------------------------------------------\n\n"
-        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow')
+        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow', loc_names)
         res += "%define invariants---------------------------------------------------------\n\n"
-        res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant')
-        #temp, inv_names= self.__constructInvariants(loc_names, invariants, options['stateVars'])
-        #res += temp
+        res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant', loc_names)
+
         inv_names = []
         return res, loc_names, inv_names
 
-    def __constructFromConstraints(self, constraints, vars, name):
+    def __constructFromConstraints(self, constraints, vars, name, loc_names):
         res = ""
         counter = 1
-        print(constraints)
-        for flow in constraints:
-            single_flow = []
-            for direc in flow:
-                direc = direc.replace('- ', '+ -')
-                single_flow.append(direc.split(' + '))
+        for con in constraints:
+            lhs = []
+            operators = []
+            rhs = []
+            for c in con:
+                c = c.replace('- ', '+ -')
+                if '<' in c:
+                    operators.append('<=')
+                    c_array = c.split('<=')
+                elif '>' in c:
+                    operators.append('>=')
+                    c_array = c.split('>=')
+                elif '=' in c:
+                    operators.append('=')
+                    c_array = c.split('=')
+                else:
+                    sys.exit("Wrong operator in: " + c)
 
-            normalized_flow = self.__normalize(single_flow, vars)
-            A, b, inter = self.__constraintsToMatrix(normalized_flow, vars)
+                lhs.append(c_array[0])
+                rhs.append(c_array[1])
 
             if name == 'flow':
+                normalized = self.__normalize(rhs, vars)
+                A, b, intervals = self.__constraintsToMatrix(normalized, vars)
                 A_matlab = self.__printMatrixToCORA(A)
                 b_matlab = self.__printMatrixToCORA(b)
                 res += 'A' + str(counter) + " = " + A_matlab + ';\n'
                 res += 'B' + str(counter) + ' = zeros(' + str(len(vars)) + ", 1);\n"
                 res += 'c' + str(counter) + " = " + b_matlab + ';\n'
-                # TODO What to do with the intervals???
+
+                # process intervals
+                inter_number = len([x for x in intervals if x != [0,0]])
+                if inter_number > 0:
+                    u_trans = []
+                    delta = []
+                    for i in intervals:
+                        left = i[0]
+                        right = i[1]
+                        center = str((left + right) / 2)
+                        d = str(abs(left - right))
+                        u_trans.append(center)
+                        delta.append(d)
+
+                    res += "options.uTrans = " + self.__printVectorToCORA(u_trans) + ';\n'
+                    res += "options.U = 0.5 * zonotope([zeros(" + str(len(lhs)) + ", 1), diag(" + self.__printVectorToCORA(delta) + ")]);\n"
+
                 res += "flow" + str(counter) + " = linearSys('linearSys" + str(counter) + "', A" + str(
                     counter) + ", B" + str(counter) + ", c" + str(counter) + ");\n\n"
                 counter += 1
             elif name == 'invariant':
-                sys.exit("Not Implemented: Invariant")
+                normalized = self.__normalize(lhs, vars)
+                A, _, _ = self.__constraintsToMatrix(normalized, vars)
+                res += 'inv_' + loc_names[counter] + " =  " + self.__writeMptPolytope(A, rhs, operators, vars)
+
             elif name == 'guard':
-                res += "guard"
-                sys.exit("Not Implemented: Guard")
+                normalized = self.__normalize(lhs, vars)
+                A, _, _ = self.__constraintsToMatrix(normalized, vars)
+                res += 'guard_' + loc_names[counter] + " =  " + self.__writeMptPolytope(A, rhs, operators, vars)
 
         return res
 
-    def __normalize(self, flow, vars):
+    def __normalize(self, expressions, vars):
         """
         This method normalizes the flow equations. For every missing component it adds a dummy.
         :rtype: object
         """
-        for f in flow:
+        normalized = []
+        for expr in expressions:
+            expr = expr.split(' + ')
             vars_contained = []
             constants = 0
             # Check which variables are contained in the expression
-            for term in f:
-                term = term.replace(' ','') # THIS
-                for v in vars:
-                    if self.__isVariableInTerm(v,term):
-                        vars_contained.append(v)
+            for term in expr:
+                term = term.replace(' ','')
                 # Check if a constant is contained in the expression
                 if self.__isNumber(term):
                     constants += 1
+                else:
+                    for v in vars:
+                        if self.__isVariableInTerm(v,term):
+                            vars_contained.append(v)
 
             #  Normalize
             if len(vars_contained) != len(vars):
@@ -255,14 +289,15 @@ class LinHybridFlowStarToCORA:
                     if v not in vars_contained:
                         # Add dummy
                         newTerm = 'non ' + v
-                        f.append(newTerm)
+                        expr.append(newTerm)
             if constants == 0:
                 # There is no constant
-                f.append('0')
+                expr.append('0')
             if constants > 1:
                 err_mes = "The expression for flow is not minimal! - Add the constants"
                 sys.exit(err_mes)
-        return flow
+            normalized.append(expr)
+        return normalized
 
     def __constraintsToMatrix(self, constraints, vars):
         """
@@ -273,7 +308,7 @@ class LinHybridFlowStarToCORA:
         """
         matrix = []
         b = []
-        interval = ''
+        intervals = []
         for f in constraints:
             entry = []
             coefficients = []
@@ -307,13 +342,20 @@ class LinHybridFlowStarToCORA:
 
             # Get intervals
             temp = [term for term in f if '[' in term]
-            if len(b) == 0:
+            if len(temp) > 1:
                 err_mes = "One constraints expression is wrong! - Added two intervals"
                 sys.exit(err_mes)
             if len(temp) > 0:
                 interval = temp[0]
+                interval = interval.replace('[','')
+                interval = interval.replace(']','')
+                inter_array = interval.split(',')
+                interval = [float(num_str) for num_str in inter_array]
+                intervals.append(interval)
+            elif len(temp) == 0:
+                intervals.append([0,0])
 
-        return matrix, b, interval
+        return matrix, b, intervals
 
     def __isVariableInTerm(self, var,term):
         term = term.replace(' ','')
@@ -334,54 +376,6 @@ class LinHybridFlowStarToCORA:
         else:
             return False
 
-    def __constructInvariants(self, loc_names, invariants, vars):
-        res = ""
-        counter = 0
-        lhs = []
-        rhs = []
-
-        print("Invariants: ", invariants)
-
-        operators = []
-        for inv in invariants:
-            single_inv = []
-            for i in inv:
-                if '>' in i:
-                    operators.append('>=')
-                    inv_array = i.split('>=')
-                    not_normalized_lhs = inv_array[0]
-                    rhs.append(inv_array[1])
-                elif '<' in i:
-                    operators.append('<=')
-                    inv_array = i.split('<=')
-                    not_normalized_lhs = inv_array[0]
-                    rhs.append(inv_array[1])
-                elif '=' in i:
-                    operators.append('=')
-                    inv_array = i.split('=')
-                    not_normalized_lhs = inv_array[0]
-                    rhs.append(inv_array[1])
-                else:
-                    sys.exit("Wrong operator " + i)
-
-                not_normalized_lhs = not_normalized_lhs.replace('- ', '+ -')
-                single_inv.append(not_normalized_lhs.split(' + '))
-
-            if single_inv != []:
-                normalized_lhs = self.__normalize(single_inv, vars)
-                lhs.append(normalized_lhs)
-                counter += 1
-            else:
-                lhs.append([])
-        for i in range(len(lhs)):
-            if lhs[i] != []:
-                min = i * (len(lhs) - 1)
-                max = min + (len(lhs) - 2)
-                op = operators[min:max]
-                A, b, inter = self.__constraintsToMatrix(lhs[i], vars)
-                res += 'inv_' + loc_names[i] + " =  " + self.__writeMptPolytope(A, b, op, vars)
-
-        return res, []
 
     def __writeMptPolytope(self, A, b, operators, vars):
         add_constr = []
@@ -389,14 +383,14 @@ class LinHybridFlowStarToCORA:
 
         for i in range(len(operators)):
             if operators[i] == '>=':
-                if b[i][0] != '0':
-                    b[i][0] = '-' + b[i][0]
+                if b[i] != '0':
+                    b[i] = '-' + b[i]
                 for j in range(len(A[i])):
                     if A[i][j] != '0':
                         A[i][j] = '-' + A[i][j]
             elif operators[i] == '=':
-                if b[i][0] != '0':
-                    new_b = '-' + b[i][0]
+                if b[i] != '0':
+                    new_b = '-' + b[i]
                 else:
                     new_b = '0'
                 new_A_line = []
@@ -487,13 +481,14 @@ class LinHybridFlowStarToCORA:
                     line = line.replace('}','')
                     line = line.replace('{', '')
                     line = line.replace('guard', '')
-
-                    line_array = line.split('   ')
-
-                    while '' in line_array:
-                        line_array.remove('')
-
-                    self.__constructFromConstraints(line_array, vars, 'guard')
+                    guard_number = line.count('=')
+                    if guard_number > 1:
+                        line_array = line.split('   ')
+                        while '' in line_array:
+                            line_array.remove('')
+                    else:
+                        line_array = [line.replace(' ', '')]
+                    self.__constructFromConstraints([line_array], vars, 'guard', locations)
                 elif 'reset' in line:
                     if '{ }' in line:
                         res += "reset.A = eye(" + str(len(vars)) + ");\n"
