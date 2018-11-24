@@ -130,7 +130,7 @@ if __name__ == '__main__':
     else:
         conv = NonLinContFlowToCORA()
 
-    conv.convert('/Users/marta/Desktop/Hybrid linear/switching_5.model', '/Users/marta/Desktop/Hybrid linear/filtered_oscillator_4.m',options)
+    conv.convert('/Users/marta/Desktop/Hybrid linear/filtered_oscillator_4.model', '/Users/marta/Desktop/Hybrid linear/filtered_oscillator_4.m',options)
 
 
 

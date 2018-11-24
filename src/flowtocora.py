@@ -381,6 +381,8 @@ class LinHybridFlowStarToCORA:
         add_constr = []
         add_b = []
 
+        print("A: ", A, " b: ", b)
+
         for i in range(len(operators)):
             if operators[i] == '>=':
                 if b[i] != '0':
@@ -408,16 +410,18 @@ class LinHybridFlowStarToCORA:
             b.append(item)
 
         A_matlab = self.__printMatrixToCORA(A)
-        b_matlab = self.__printMatrixToCORA(b)
+        b_matlab = self.__printVectorToCORA(b)
 
         res = "mptPolytope(struct('A', "+ A_matlab + ", 'b', " + b_matlab + "));\n"
-       # print(res)
 
         return res
 
     def __printMatrixToCORA(self, matrix):
         res = "["
         cntr = 0
+        print("matrix: ",matrix)
+        print("rows: ", len(matrix))
+        print("cols: ", len(matrix[0]))
         for i in range(len(matrix)):
             for j in range(len(matrix[0])):
                 res += str(matrix[i][j]) + " "
