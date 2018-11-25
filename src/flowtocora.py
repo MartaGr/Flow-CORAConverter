@@ -58,8 +58,9 @@ class LinHybridFlowStarToCORA:
         res += self.__writeOptions(options)
         temp, loc_names, inv_names = self.__getModes(modes_line, infile, options)
         res += temp
-        res += self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
-        res += self.__defineLocations(loc_names, inv_names)
+        temp, loc_dict = self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
+        res += temp
+        res += self.__defineLocations(loc_dict)
         res += self.__defineHybridAutomaton()
         res += self.__drawReachableSet()
 
@@ -200,6 +201,7 @@ class LinHybridFlowStarToCORA:
     def __constructFromConstraints(self, constraints, vars, name, loc_names):
         res = ""
         counter = 1
+        inv_counter = 0
         for con in constraints:
             lhs = []
             operators = []
@@ -252,12 +254,12 @@ class LinHybridFlowStarToCORA:
             elif name == 'invariant':
                 normalized = self.__normalize(lhs, vars)
                 A, _, _ = self.__constraintsToMatrix(normalized, vars)
-                res += 'inv_' + loc_names[counter] + " =  " + self.__writeMptPolytope(A, rhs, operators, vars)
-
+                res += 'inv_' + loc_names[inv_counter] + " =  " + self.__writeMptPolytope(A, rhs, operators, vars)
+                inv_counter += 1
             elif name == 'guard':
                 normalized = self.__normalize(lhs, vars)
                 A, _, _ = self.__constraintsToMatrix(normalized, vars)
-                res += 'guard_' + loc_names[counter] + " =  " + self.__writeMptPolytope(A, rhs, operators, vars)
+                res += "guard =  " + self.__writeMptPolytope(A, rhs, operators, vars)
 
         return res
 
@@ -381,8 +383,6 @@ class LinHybridFlowStarToCORA:
         add_constr = []
         add_b = []
 
-        print("A: ", A, " b: ", b)
-
         for i in range(len(operators)):
             if operators[i] == '>=':
                 if b[i] != '0':
@@ -419,9 +419,6 @@ class LinHybridFlowStarToCORA:
     def __printMatrixToCORA(self, matrix):
         res = "["
         cntr = 0
-        print("matrix: ",matrix)
-        print("rows: ", len(matrix))
-        print("cols: ", len(matrix[0]))
         for i in range(len(matrix)):
             for j in range(len(matrix[0])):
                 res += str(matrix[i][j]) + " "
@@ -492,21 +489,21 @@ class LinHybridFlowStarToCORA:
                             line_array.remove('')
                     else:
                         line_array = [line.replace(' ', '')]
-                    self.__constructFromConstraints([line_array], vars, 'guard', locations)
+                    res += self.__constructFromConstraints([line_array], vars, 'guard', locations)
                 elif 'reset' in line:
                     if '{ }' in line:
                         res += "reset.A = eye(" + str(len(vars)) + ");\n"
                         res += "reset.b = zeros(" + str(len(vars)) + ", 1);\n"
                     else:
                         res += self.__extractConstraints(line, 'reset', vars)
-
                     counter += 1
                 elif 'parallelotope' in line:
                     # TODO What is this?
                     pass
                 else:
-                    res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + ", reset, " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
-        return res
+                    print("loc dict: ", l1, " ", loc_dict[l1])
+                    res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard"  + ", reset, " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
+        return res, loc_dict
 
     def __extractConstraints(self, line, name, vars, c = 0):
         res = ""
@@ -561,10 +558,11 @@ class LinHybridFlowStarToCORA:
                 pass
 
 
-        if name == 'guard' and number_guards == 0:
-            #TODO is it possible in CORA?
-            return res
-        elif name == 'guard':
+        # if name == 'guard' and number_guards == 0:
+        #     #TODO is it possible in CORA?
+        #     return res
+        if name == 'guard':
+            print("Bla")
             res += "guard = " +  self.__writeMptPolytope(lhs, operator, rhs, vars)
         elif name == 'reset':
             res += self.__writeReset(lhs, operator, rhs,vars, c=counter)
@@ -615,10 +613,11 @@ class LinHybridFlowStarToCORA:
         res += "reset.b = " + self.__printVectorToCORA(b) + ";\n"
         return  res
 
-    def __defineLocations(self, loc_names, inv_names):
+    def __defineLocations(self, loc_dict):
         res = "\n%define locations----------------------------------------------------------\n\n"
         counter = 1
-        for loc in loc_names:
+        print("loc names: ", loc_dict)
+        for loc in loc_dict:
             res += "options.uLoc{" + str(counter) + "} = 0;\n"
             res += "options.uLocTrans{" + str(counter) + "} = 0;\n"
             res += "options.Uloc{" + str(counter) + "} = zonotope(0);\n\n"
@@ -626,11 +625,13 @@ class LinHybridFlowStarToCORA:
 
         res += '\n'
         counter = 1
-
-        for loc in loc_names:
-            res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str (counter) + ", " + "inv_" + loc + ", trans_"+ loc_names[counter - 1] + ", flow" + str(counter) + ");\n"
-            counter += 1
-
+        for loc in loc_dict:
+            if loc_dict[loc] > 0:
+                res += "loc{" + str(counter) + "} = location('" + loc + "', " + str (counter) + ", " + "inv_" + loc + ", trans_"+ loc + ", flow" + str(counter) + ");\n"
+                counter += 1
+            else:
+                res += "loc{" + str(counter) + "} = location('" + loc + "', " + str(
+                    counter) + ", " + "inv_" + loc + ", {}, flow" + str(counter) + ");\n"
         return res
 
     def __defineHybridAutomaton(self,reach=True, simulation=False):
@@ -669,6 +670,8 @@ class LinHybridFlowStarToCORA:
         name = str(path[len(path) - 1])
         name = name.replace('.model', '')
         res = self.__readFile(infile, options, name)
+        # ofile = open(outfile, 'x')
+        # ofile.write(res)
         print(res)
 
 
