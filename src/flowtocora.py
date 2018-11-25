@@ -53,6 +53,12 @@ class LinHybridFlowStarToCORA:
 
         file.close()
 
+        if unsafe_line != 0 and False:
+            #TODO
+            options['unsafe'] = '@specificationUnsafe'
+        else:
+            options['unsafe'] = 'non'
+
         res = ""
         res += self.__getInitialization(init_line, infile, name, options)
         res += self.__writeOptions(options)
@@ -62,6 +68,7 @@ class LinHybridFlowStarToCORA:
         res += temp
         res += self.__defineLocations(loc_dict)
         res += self.__defineHybridAutomaton()
+        res += self.__defineUnsafeSet(unsafe_line, infile, options)
         res += self.__drawReachableSet()
 
         return res
@@ -190,15 +197,15 @@ class LinHybridFlowStarToCORA:
         for i in range(1, len(loc_names) + 1):
             res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
-        res += "%define flows--------------------------------------------------------------\n\n"
-        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow', loc_names)
+        res += "\n%define flows--------------------------------------------------------------\n\n"
+        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow', loc_names, system = options['system'])
         res += "%define invariants---------------------------------------------------------\n\n"
-        res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant', loc_names)
+        res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant', loc_names, system = options['system'])
 
         inv_names = []
         return res, loc_names, inv_names
 
-    def __constructFromConstraints(self, constraints, vars, name, loc_names):
+    def __constructFromConstraints(self, constraints, vars, name, loc_names, system='linear'):
         res = ""
         counter = 1
         inv_counter = 0
@@ -224,32 +231,10 @@ class LinHybridFlowStarToCORA:
                 rhs.append(c_array[1])
 
             if name == 'flow':
-                normalized = self.__normalize(rhs, vars)
-                A, b, intervals = self.__constraintsToMatrix(normalized, vars)
-                A_matlab = self.__printMatrixToCORA(A)
-                b_matlab = self.__printMatrixToCORA(b)
-                res += 'A' + str(counter) + " = " + A_matlab + ';\n'
-                res += 'B' + str(counter) + ' = zeros(' + str(len(vars)) + ", 1);\n"
-                res += 'c' + str(counter) + " = " + b_matlab + ';\n'
-
-                # process intervals
-                inter_number = len([x for x in intervals if x != [0,0]])
-                if inter_number > 0:
-                    u_trans = []
-                    delta = []
-                    for i in intervals:
-                        left = i[0]
-                        right = i[1]
-                        center = str((left + right) / 2)
-                        d = str(abs(left - right))
-                        u_trans.append(center)
-                        delta.append(d)
-
-                    res += "options.uTrans = " + self.__printVectorToCORA(u_trans) + ';\n'
-                    res += "options.U = 0.5 * zonotope([zeros(" + str(len(lhs)) + ", 1), diag(" + self.__printVectorToCORA(delta) + ")]);\n"
-
-                res += "flow" + str(counter) + " = linearSys('linearSys" + str(counter) + "', A" + str(
-                    counter) + ", B" + str(counter) + ", c" + str(counter) + ");\n\n"
+                if system == 'linear hybrid':
+                    res += self.__defineLinearFlow(rhs, lhs, vars, counter)
+                else:
+                    res += self.__defineNonLinearFlow(rhs, lhs, vars, counter)
                 counter += 1
             elif name == 'invariant':
                 normalized = self.__normalize(lhs, vars)
@@ -262,6 +247,43 @@ class LinHybridFlowStarToCORA:
                 res += "guard =  " + self.__writeMptPolytope(A, rhs, operators, vars)
 
         return res
+
+    def __defineLinearFlow(self, rhs, lhs, vars, counter):
+        res = ''
+        normalized = self.__normalize(rhs, vars)
+        A, b, intervals = self.__constraintsToMatrix(normalized, vars)
+        A_matlab = self.__printMatrixToCORA(A)
+        b_matlab = self.__printMatrixToCORA(b)
+        res += 'A' + str(counter) + " = " + A_matlab + ';\n'
+        res += 'B' + str(counter) + ' = zeros(' + str(len(vars)) + ", 1);\n"
+        res += 'c' + str(counter) + " = " + b_matlab + ';\n'
+
+        # process intervals
+        inter_number = len([x for x in intervals if x != [0, 0]])
+        if inter_number > 0:
+            u_trans = []
+            delta = []
+            for i in intervals:
+                left = i[0]
+                right = i[1]
+                center = str((left + right) / 2)
+                d = str(abs(left - right))
+                u_trans.append(center)
+                delta.append(d)
+
+            res += "options.uTrans = " + self.__printVectorToCORA(u_trans) + ';\n'
+            res += "options.U = 0.5 * zonotope([zeros(" + str(len(lhs)) + ", 1), diag(" + self.__printVectorToCORA(
+                delta) + ")]);\n"
+
+        res += "flow" + str(counter) + " = linearSys('linearSys" + str(counter) + "', A" + str(
+            counter) + ", B" + str(counter) + ", c" + str(counter) + ");\n\n"
+
+        return res
+
+    def __defineNonLinearFlow(self, rhs, lhs, vars, counter):
+        return ' '
+
+
 
     def __normalize(self, expressions, vars):
         """
@@ -662,10 +684,31 @@ class LinHybridFlowStarToCORA:
         res += "options.enclosureEnables = " + str(options['enclosure']) + ";\n"
         res += "options.originContained = " + str(options['origin']) + ";\n"
 
+        if options['unsafe'] != 'non':
+            res += "options.verifySpecs = " + options['unsafe'] + ";\n"
+
+
         return res
 
+    def __defineUnsafeSet(self, start, infile, options):
+        res = "% Auxiliary functions -----------------------------------------------------\n\n"
+
+        open_braces = 0
+        with open(infile, 'r') as file:
+            for i in range(start + 1):
+                file.readline()
+            for line in file:
+                if '{' in line:
+                    open_braces += 1
+                elif '}' in line:
+                    open_braces -= 1
+                if open_braces == 1:
+                    pass
+        #TODO
+        return ""
+
+
     def convert(self, infile, outfile, options):
-        # TODO check if which system we have
         path = infile.split('/')
         name = str(path[len(path) - 1])
         name = name.replace('.model', '')
