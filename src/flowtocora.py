@@ -1,7 +1,7 @@
 import sys
 
 
-class LinHybridFlowStarToCORA:
+class HybridFlowStarToCORA:
 
     def __readFile(self, infile, options, name):
         """
@@ -17,7 +17,6 @@ class LinHybridFlowStarToCORA:
         jumps_line = 0
         unsafe_line = 0
 
-
         with open(infile, 'r') as file:
             for line in file:
                 count += 1
@@ -29,7 +28,7 @@ class LinHybridFlowStarToCORA:
                     options['stateVars'] = state_var
                 if 'fixed steps' in line:
                     stepSize = line.split(' ')[4]
-                    stepSize = stepSize.replace('\n', '')
+                    stepSize = stepSize.replace('\n', '')  # type: str
                     options['stepSize'] = stepSize
                 if 'time' in line:
                     tFinal = line.split(' ')[3]
@@ -55,7 +54,7 @@ class LinHybridFlowStarToCORA:
         file.close()
 
         if unsafe_line != 0 and False:
-            #TODO
+            # TODO
             options['unsafe'] = '@specificationUnsafe'
         else:
             options['unsafe'] = 'non'
@@ -63,7 +62,7 @@ class LinHybridFlowStarToCORA:
         res = ""
         res += self.__getInitialization(init_line, infile, name, options)
         res += self.__writeOptions(options)
-        temp, loc_names, inv_names = self.__getModes(modes_line, infile, options)
+        temp, loc_names, inv_names = self.__getModes(modes_line, infile, options, name)
         res += temp
         temp, loc_dict = self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
         res += temp
@@ -96,8 +95,8 @@ class LinHybridFlowStarToCORA:
                 if '}' in line:
                     break
                 else:
-                    l = line.split(' ')
-                    initial.append(l[len(l) - 1])
+                    line_array = line.split(' ')
+                    initial.append(line_array[len(line_array) - 1])
         file.close()
 
         count = 0
@@ -120,7 +119,7 @@ class LinHybridFlowStarToCORA:
         res += r0
         return res
 
-    def __getModes(self, start, infile, options):
+    def __getModes(self, start, infile, options, name):
         """
         This method extracts the locations from the Flow* file.
         :param start: Line at which the modes specifications start
@@ -148,7 +147,7 @@ class LinHybridFlowStarToCORA:
                 if 'inv' in line:
                     inv_area = True
                     line = file.readline()
-                if '{' in line and open_braces == 3 and inv_area == False:
+                if '{' in line and open_braces == 3 and inv_area is False:
                     # Save flow
                     fl = []
                     line = file.readline()
@@ -167,7 +166,7 @@ class LinHybridFlowStarToCORA:
                             # Invariant is given in interval representation
                             line_array = it.split('in')
                             var = line_array[0]
-                            interval = line_array[1].replace('[','')
+                            interval = line_array[1].replace('[', '')
                             interval = interval.replace(']', '')
                             interval = interval.split(',')
                             inv.append(var + " >= " + interval[0])
@@ -199,14 +198,15 @@ class LinHybridFlowStarToCORA:
             res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
         res += "\n%define flows--------------------------------------------------------------\n\n"
-        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow', loc_names, system = options['system'])
+        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow', loc_names, system=options['system'])
         res += "%define invariants---------------------------------------------------------\n\n"
-        res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant', loc_names, system = options['system'])
+        res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant', loc_names,
+                                               system=options['system'])
 
         inv_names = []
         return res, loc_names, inv_names
 
-    def __constructFromConstraints(self, constraints, vars, name, loc_names, system='linear'):
+    def __constructFromConstraints(self, constraints, vars, name, loc_names, system='linear', path = ""):
         res = ""
         counter = 1
         inv_counter = 0
@@ -227,8 +227,8 @@ class LinHybridFlowStarToCORA:
                     c_array = c.split('=')
                 elif 'in' in c and '[' in c:
                     c_array = c.split('in')
-                    interval = c_array[1].replace('[','')
-                    interval = interval.replace(']','')
+                    interval = c_array[1].replace('[', '')
+                    interval = interval.replace(']', '')
                     interval_array = interval.split(',')
                     lower = interval_array[0]
                     upper = interval_array[1]
@@ -248,7 +248,7 @@ class LinHybridFlowStarToCORA:
                 if system == 'linear hybrid':
                     res += self.__defineLinearFlow(rhs, lhs, vars, counter)
                 else:
-                    res += self.__defineNonLinearFlow(rhs, lhs, vars, counter)
+                    res += self.__defineNonLinearFlow(rhs, vars, counter, name, path)
                 counter += 1
             elif name == 'invariant':
                 normalized = self.__normalize(lhs, vars)
@@ -294,10 +294,32 @@ class LinHybridFlowStarToCORA:
 
         return res
 
-    def __defineNonLinearFlow(self, rhs, lhs, vars, counter):
-        return ' '
+    def __defineNonLinearFlow(self, rhs, vars, counter, name, path):
+        res = 'flow' + str(counter) + ' = nonlinearSys(' + str(len(vars)) + ", 1, @" + name + "_FlowEq_" + str(counter) + ", options);\n"
 
+        f_content = ""
+        eq_file_name = path + name + '_FlowEq_' + str(counter) + ".m"
+        eq_file = open(eq_file_name, 'w')
+        f_content += 'function [dx] = ' + eq_file_name + '(t,x,u)\n'
+        f_content += '%'
+        mapping = {}
+        for i in range(len(vars)):
+            var = vars[i]
+            f_content += 'x(' + str(i + 1) + ') = ' + var + ' '
+            mapping[var] = 'x(' + str(i + 1) + ')'
+        f_content += '\n'
 
+        vars.sort(key=len, reverse=True)
+        counter = 1
+        for expression in rhs:
+            for v in vars:
+                expression = expression.replace(v, mapping[v])
+            f_content += 'dx(' + str(counter) + ", 1) = " + expression + '\n'
+            counter += 1
+        f_content += '\n'
+        eq_file.write(f_content)
+        eq_file.close()
+        return res
 
     def __normalize(self, expressions, vars):
         """
@@ -311,13 +333,13 @@ class LinHybridFlowStarToCORA:
             constants = 0
             # Check which variables are contained in the expression
             for term in expr:
-                term = term.replace(' ','')
+                term = term.replace(' ', '')
                 # Check if a constant is contained in the expression
                 if self.__isNumber(term):
                     constants += 1
                 else:
                     for v in vars:
-                        if self.__isVariableInTerm(v,term):
+                        if self.__isVariableInTerm(v, term):
                             vars_contained.append(v)
 
             #  Normalize
@@ -352,7 +374,7 @@ class LinHybridFlowStarToCORA:
             coefficients = []
             # Get the coefficients for variables
             for v in vars:
-                temp = [x for x in f if self.__isVariableInTerm(v,x)]
+                temp = [x for x in f if self.__isVariableInTerm(v, x)]
                 if len(temp) > 1:
                     err_mes = 'The expression for constraints is not minimal! - Add the coefficients for variable ' + v
                     sys.exit(err_mes)
@@ -385,20 +407,20 @@ class LinHybridFlowStarToCORA:
                 sys.exit(err_mes)
             if len(temp) > 0:
                 interval = temp[0]
-                interval = interval.replace('[','')
-                interval = interval.replace(']','')
+                interval = interval.replace('[', '')
+                interval = interval.replace(']', '')
                 inter_array = interval.split(',')
                 interval = [float(num_str) for num_str in inter_array]
                 intervals.append(interval)
             elif len(temp) == 0:
-                intervals.append([0,0])
+                intervals.append([0, 0])
 
         return matrix, b, intervals
 
-    def __isVariableInTerm(self, var,term):
-        term = term.replace(' ','')
+    def __isVariableInTerm(self, var, term):
+        term = term.replace(' ', '')
         if '-' in term:
-            term = term.replace('-','')
+            term = term.replace('-', '')
             term = term.replace(' ', '')
         if var == term:
             return True
@@ -408,12 +430,11 @@ class LinHybridFlowStarToCORA:
             if var == v:
                 return True
         elif 'non' in term:
-            v = term.replace('non','')
+            v = term.replace('non', '')
             if var == v:
                 return True
         else:
             return False
-
 
     def __writeMptPolytope(self, A, b, operators, vars):
         add_constr = []
@@ -448,7 +469,7 @@ class LinHybridFlowStarToCORA:
         A_matlab = self.__printMatrixToCORA(A)
         b_matlab = self.__printVectorToCORA(b)
 
-        res = "mptPolytope(struct('A', "+ A_matlab + ", 'b', " + b_matlab + "));\n"
+        res = "mptPolytope(struct('A', " + A_matlab + ", 'b', " + b_matlab + "));\n"
 
         return res
 
@@ -507,15 +528,15 @@ class LinHybridFlowStarToCORA:
                 if '->' in line:
                     l = line.split('->')
                     l1 = l[0].replace(' ', '')
-                    l1 = l1.replace('\n','')
+                    l1 = l1.replace('\n', '')
                     l2 = l[1].replace(' ', '')
                     l2 = l2.replace('\n', '')
                     loc_dict[l1] += 1
                     res += '\n%' + line
                     counter += 1
                 elif 'guard' in line:
-                    line = line.replace('\n','')
-                    line = line.replace('}','')
+                    line = line.replace('\n', '')
+                    line = line.replace('}', '')
                     line = line.replace('{', '')
                     line = line.replace('guard', '')
                     guard_number = line.count('=')
@@ -540,19 +561,20 @@ class LinHybridFlowStarToCORA:
                     # TODO What is this?
                     pass
                 else:
-                    res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard"  + ", reset, " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
+                    res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard" + ", reset, " + str(
+                        locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res, loc_dict
 
-    def __extractConstraints(self, line, name, vars, c = 0):
+    def __extractConstraints(self, line, name, vars, c=0):
         res = ""
-        line = line.replace('{','')
+        line = line.replace('{', '')
         line = line.replace('}', '')
         line = line.replace(name, '')
         line = line.replace('\n', '')
-        line = line.replace('\t','')
-        line = line.replace("'",'')
+        line = line.replace('\t', '')
+        line = line.replace("'", '')
         line_array = line.split(' ')
-        res += "%" + line +'\n'
+        res += "%" + line + '\n'
         line_array = [x for x in line_array if len(x) > 0]
 
         counter = 0
@@ -571,7 +593,7 @@ class LinHybridFlowStarToCORA:
             elif counter == 1:
                 if '=' in term or '>' in term or '<' in term:
                     operator.append(term)
-                    counter +=1
+                    counter += 1
                 elif 'in' in term:
                     lhs.append(lhs[-1])
                     number_guards += 1
@@ -579,41 +601,40 @@ class LinHybridFlowStarToCORA:
                     operator.append('>=')
                     operator.append('<=')
                 else:
-                    sys.exit("Constraint has to have the form [var] [operator] [constant] (wrong position of the operator): " + term)
+                    sys.exit(
+                        "Constraint has to have the form [var] [operator] [constant] (wrong position of the operator): " + term)
             elif counter == 2:
                 if self.__isNumber(term) or '*' in term or term in vars:
                     rhs.append(term)
                     counter = 0
                 elif '[' in term:
-                    term = term.replace('[','')
-                    term = term.replace(']','')
+                    term = term.replace('[', '')
+                    term = term.replace(']', '')
                     interval = term.split(',')
                     rhs.append(interval[0])
                     rhs.append(interval[1])
                 else:
-                    sys.exit("Constraint has to have the form [var] [operator] [constant]: " +term)
+                    sys.exit("Constraint has to have the form [var] [operator] [constant]: " + term)
             else:
                 pass
-
 
         # if name == 'guard' and number_guards == 0:
         #     #TODO is it possible in CORA?
         #     return res
         if name == 'guard':
-            print("Bla")
-            res += "guard = " +  self.__writeMptPolytope(lhs, operator, rhs, vars)
+            res += "guard = " + self.__writeMptPolytope(lhs, operator, rhs, vars)
         elif name == 'reset':
-            res += self.__writeReset(lhs, operator, rhs,vars, c=counter)
+            res += self.__writeReset(lhs, operator, rhs, vars, c=counter)
         else:
             sys.exit("Wrong name")
 
         return res
 
-    def __writeReset(self, lhs, operator, rhs, vars, c =0):
+    def __writeReset(self, lhs, operator, rhs, vars, c=0):
         res = ""
         A = []
         b = []
-        var_indeces =[]
+        var_indeces = []
         for i in range(len(lhs)):
             if '>' in operator[i] or '<' in operator[i]:
                 sys.exit("Reset have to be an :=")
@@ -625,7 +646,7 @@ class LinHybridFlowStarToCORA:
                     for v in range(len(vars)):
                         if v == var_index and k == var_index:
                             entry.append('0')
-                        elif v == k :
+                        elif v == k:
                             entry.append('1')
                         else:
                             entry.append('0')
@@ -649,12 +670,11 @@ class LinHybridFlowStarToCORA:
                 b.append('0')
         res += "reset.A = " + self.__printMatrixToCORA(A) + ";\n"
         res += "reset.b = " + self.__printVectorToCORA(b) + ";\n"
-        return  res
+        return res
 
     def __defineLocations(self, loc_dict, loc_names):
         res = "\n%define locations----------------------------------------------------------\n\n"
         counter = 1
-        print("loc names: ", loc_dict)
         for loc in loc_dict:
             res += "options.uLoc{" + str(counter) + "} = 0;\n"
             res += "options.uLocTrans{" + str(counter) + "} = 0;\n"
@@ -665,14 +685,16 @@ class LinHybridFlowStarToCORA:
         counter = 1
         for loc in loc_dict:
             if loc_dict[loc] > 0:
-                res += "loc{" + str(counter) + "} = location('" + loc_names[counter-1] + "', " + str (counter) + ", " + "inv_" + loc_names[counter-1] + ", trans_"+ loc_names[counter-1] + ", flow" + str(counter) + ");\n"
+                res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str(
+                    counter) + ", " + "inv_" + loc_names[counter - 1] + ", trans_" + loc_names[
+                           counter - 1] + ", flow" + str(counter) + ");\n"
                 counter += 1
             else:
-                res += "loc{" + str(counter) + "} = location('" + loc_names[counter-1] + "', " + str(
-                    counter) + ", " + "inv_" + loc_names[counter-1] + ", {}, flow" + str(counter) + ");\n"
+                res += "loc{" + str(counter) + "} = location('" + loc_names[counter - 1] + "', " + str(
+                    counter) + ", " + "inv_" + loc_names[counter - 1] + ", {}, flow" + str(counter) + ");\n"
         return res
 
-    def __defineHybridAutomaton(self,reach=True, simulation=False):
+    def __defineHybridAutomaton(self, reach=True, simulation=False):
         res = "\n%define hybrid automaton---------------------------------------------------\n\n"
         res += "HA = hybridAutomaton(loc);\n"
         res += "[HA] = reach(HA, options);\n\n"
@@ -688,7 +710,6 @@ class LinHybridFlowStarToCORA:
         res += "res = 1;\n"
         return res
 
-
     def __writeOptions(self, options):
         res = ""
         res += "options.taylorTerms = " + str(options['taylor']) + ";\n"
@@ -703,7 +724,12 @@ class LinHybridFlowStarToCORA:
         if options['unsafe'] != 'non':
             res += "options.verifySpecs = " + options['unsafe'] + ";\n"
 
-
+        if options['system'] == 'non-linear hybrid':
+            res += "options.maxError = " + str(options['maxError']) + " * ones(" + str(len(options['stateVars'])) + ");\n"
+            res += "options.verbose = " + str(options['verbose']) + ";\n"
+            res += "options.tensorOrder = " + str(options['tensorOrder']) + ";\n"
+            res += "options.advancedLinErrorComp = " + str(options['advancedLinErrorComp']) + ";\n"
+            res += "options.reductionInterval = " + str(options['reductionInterval']) + ";\n"
         return res
 
     def __defineUnsafeSet(self, start, infile, options):
@@ -720,29 +746,19 @@ class LinHybridFlowStarToCORA:
                     open_braces -= 1
                 if open_braces == 1:
                     pass
-        #TODO
+        # TODO
         return ""
-
 
     def convert(self, infile, outfile, options):
         path = infile.split('/')
         name = str(path[len(path) - 1])
         name = name.replace('.model', '')
         res = self.__readFile(infile, options, name)
-        # ofile = open(outfile, 'x')
-        # ofile.write(res)
+        ofile = open(outfile, 'w')
+        ofile.write(res)
         print(res)
 
 
 
-
-class NonLinHybridFlowToCORA:
-    pass
-
-
-class LinContFlowToCORA:
-    pass
-
-
-class NonLinContFlowToCORA:
+class ContFlowToCORA:
     pass

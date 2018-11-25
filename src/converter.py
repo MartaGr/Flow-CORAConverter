@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QFileDialog
 
-from src.flowtocora import LinHybridFlowStarToCORA, NonLinHybridFlowToCORA, LinContFlowToCORA, NonLinContFlowToCORA
+from src.flowtocora import HybridFlowStarToCORA, ContFlowToCORA
 from src.coratoflow import CORAtoFlowStar
 from src.Ui_MainWindow import Ui_MainWindow
 
@@ -20,9 +20,6 @@ class MainWindow:
         self.ui.outfile_button.clicked.connect(self.__browseOutput)
         self.ui.okay_button.clicked.connect(self.__enableConverter)
         self.ui.convert_button.clicked.connect(self.__startConverter)
-
-
-
 
     def show(self):
         self.main_win.show()
@@ -64,7 +61,7 @@ class MainWindow:
 
         if '.model' in infile_path:
             print("Converting Flow* file to CORA file...")
-            converter = FlowStarToCORA()
+            converter = HybridFlowStarToCORA()
         else:
             print("Converting CORA file to Flow* file")
             converter = CORAtoFlowStar()
@@ -81,6 +78,11 @@ class MainWindow:
         en = self.ui.enclosure_button.isChecked()
         hy = self.ui.enclosure_button.isChecked()
         ori = self.ui.origin_button.isChecked()
+        maxError = self.ui.maxError.text()
+        tensorOrder = self.ui.tensorOrder.text()
+        reductionIntv = self.ui.reductionInterval.text()
+        verbose = self.ui.verbose.isChecked()
+        advancedLinErrorComp = self.ui.advancedLinErrorComp.isChecked()
 
         enclosure = str(0)
         hyperplane = str(0)
@@ -103,6 +105,13 @@ class MainWindow:
                    'hyperplane': hyperplane,
                    'origin': origin}
 
+        if system == 'non-linear hybrid':
+            options['maxError'] = maxError
+            options['tensorOrder'] = tensorOrder
+            options['reductionInterval'] = reductionIntv
+            options['verbose'] = verbose
+            options['advancedLinErrorComp'] = advancedLinErrorComp
+
         return options
 
 
@@ -111,7 +120,7 @@ if __name__ == '__main__':
     # main_win = MainWindow()
     # main_win.show()
     #sys.exit(app.exec_())
-    options = {'system': 'linear hybrid',
+    options = {'system': 'non-linear hybrid',
                'taylor': '10',
                'zonotope': '20',
                'polytope': '10',
@@ -119,18 +128,19 @@ if __name__ == '__main__':
                'reduction': 'girard',
                'enclosure': '5',
                'hyperplane': '0',
-               'origin': '0'}
+               'origin': '0',
+               'maxError': '2',
+               'verbose': '1',
+               'tensorOrder': '1',
+               'advancedLinErrorComp': '0',
+               'reductionInterval': 'inf'}
 
-    if options['system'] == 'linear hybrid':
-        conv = LinHybridFlowStarToCORA()
-    elif options['system'] == 'non-linear hybrid':
-        conv = NonLinHybridFlowToCORA()
-    elif options['system'] == 'linear continuous':
-        conv = LinContFlowToCORA()
+    if options['system'] == 'linear hybrid' or options['system'] == 'non-linear hybrid':
+        conv = HybridFlowStarToCORA()
     else:
-        conv = NonLinContFlowToCORA()
+        conv = ContFlowToCORA()
 
-    conv.convert('/Users/Marta/Desktop/linear hybrid/switching_5.model', '/Users/marta/Desktop/Hybrid linear/switching_5.m',options)
+    conv.convert('/Users/Marta/Desktop/Non-linear hybrid/glucose_control_I.model', '/Users/Marta/Desktop/Non-linear hybrid/glucose_control_I.m',options)
 
 
 
