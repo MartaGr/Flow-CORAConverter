@@ -224,6 +224,19 @@ class LinHybridFlowStarToCORA:
                 elif '=' in c:
                     operators.append('=')
                     c_array = c.split('=')
+                elif 'in' in c and '[' in c:
+                    c_array = c.split('in')
+                    interval = c_array[1].replace('[','')
+                    interval = interval.replace(']','')
+                    interval_array = interval.split(',')
+                    lower = interval_array[0]
+                    upper = interval_array[1]
+                    lhs.append(c_array[0])
+                    operators.append('>=')
+                    rhs.append(lower)
+                    lhs.append(c_array[0])
+                    operators.append('<=')
+                    rhs.append(upper)
                 else:
                     sys.exit("Wrong operator in: " + c)
 

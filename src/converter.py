@@ -130,7 +130,7 @@ if __name__ == '__main__':
     else:
         conv = NonLinContFlowToCORA()
 
-    conv.convert('/Users/marta/Desktop/Hybrid linear/rod_reactor.model', '/Users/marta/Desktop/Hybrid linear/switching_5.m',options)
+    conv.convert('/Users/marta/Desktop/Hybrid linear/switching_5.model', '/Users/marta/Desktop/Hybrid linear/switching_5.m',options)
 
 
 
