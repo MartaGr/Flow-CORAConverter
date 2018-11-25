@@ -67,7 +67,7 @@ class LinHybridFlowStarToCORA:
         res += temp
         temp, loc_dict = self.__getJumps(jumps_line, infile, options['stateVars'], loc_names)
         res += temp
-        res += self.__defineLocations(loc_dict)
+        res += self.__defineLocations(loc_dict, loc_names)
         res += self.__defineHybridAutomaton()
         res += self.__defineUnsafeSet(unsafe_line, infile, options)
         res += self.__drawReachableSet()
@@ -536,8 +536,10 @@ class LinHybridFlowStarToCORA:
                 elif 'parallelotope' in line:
                     # TODO What is this?
                     pass
+                elif 'interval aggregation' in line:
+                    # TODO What is this?
+                    pass
                 else:
-                    print("loc dict: ", l1, " ", loc_dict[l1])
                     res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard"  + ", reset, " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res, loc_dict
 
@@ -649,7 +651,7 @@ class LinHybridFlowStarToCORA:
         res += "reset.b = " + self.__printVectorToCORA(b) + ";\n"
         return  res
 
-    def __defineLocations(self, loc_dict):
+    def __defineLocations(self, loc_dict, loc_names):
         res = "\n%define locations----------------------------------------------------------\n\n"
         counter = 1
         print("loc names: ", loc_dict)
@@ -663,11 +665,11 @@ class LinHybridFlowStarToCORA:
         counter = 1
         for loc in loc_dict:
             if loc_dict[loc] > 0:
-                res += "loc{" + str(counter) + "} = location('" + loc + "', " + str (counter) + ", " + "inv_" + loc + ", trans_"+ loc + ", flow" + str(counter) + ");\n"
+                res += "loc{" + str(counter) + "} = location('" + loc_names[counter-1] + "', " + str (counter) + ", " + "inv_" + loc_names[counter-1] + ", trans_"+ loc_names[counter-1] + ", flow" + str(counter) + ");\n"
                 counter += 1
             else:
-                res += "loc{" + str(counter) + "} = location('" + loc + "', " + str(
-                    counter) + ", " + "inv_" + loc + ", {}, flow" + str(counter) + ");\n"
+                res += "loc{" + str(counter) + "} = location('" + loc_names[counter-1] + "', " + str(
+                    counter) + ", " + "inv_" + loc_names[counter-1] + ", {}, flow" + str(counter) + ");\n"
         return res
 
     def __defineHybridAutomaton(self,reach=True, simulation=False):
