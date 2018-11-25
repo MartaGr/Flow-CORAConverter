@@ -17,6 +17,7 @@ class LinHybridFlowStarToCORA:
         jumps_line = 0
         unsafe_line = 0
 
+
         with open(infile, 'r') as file:
             for line in file:
                 count += 1
