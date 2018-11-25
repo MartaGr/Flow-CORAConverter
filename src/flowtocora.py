@@ -218,17 +218,35 @@ class LinHybridFlowStarToCORA:
                 if '<' in c:
                     operators.append('<=')
                     c_array = c.split('<=')
+                    lhs.append(c_array[0])
+                    rhs.append(c_array[1])
                 elif '>' in c:
                     operators.append('>=')
                     c_array = c.split('>=')
+                    lhs.append(c_array[0])
+                    rhs.append(c_array[1])
                 elif '=' in c:
                     operators.append('=')
                     c_array = c.split('=')
+                    lhs.append(c_array[0])
+                    rhs.append(c_array[1])
+                elif 'in' in c and '[' in c:
+                    c_array = c.split('in')
+                    interval = c_array[1].replace('[','')
+                    interval = interval.replace(']','')
+                    interval_array = interval.split(',')
+                    lower = interval_array[0]
+                    upper = interval_array[1]
+                    lhs.append(c_array[0])
+                    operators.append('>=')
+                    rhs.append(lower)
+                    lhs.append(c_array[0])
+                    operators.append('<=')
+                    rhs.append(upper)
                 else:
                     sys.exit("Wrong operator in: " + c)
 
-                lhs.append(c_array[0])
-                rhs.append(c_array[1])
+
 
             if name == 'flow':
                 if system == 'linear hybrid':
@@ -523,7 +541,6 @@ class LinHybridFlowStarToCORA:
                     # TODO What is this?
                     pass
                 else:
-                    print("loc dict: ", l1, " ", loc_dict[l1])
                     res += "trans_" + l1 + "{" + str(loc_dict[l1]) + "} = transition(guard"  + ", reset, " +str(locations.index(l2) + 1) + ", '" + l1 + "', '" + l2 + "');\n"
         return res, loc_dict
 
@@ -638,7 +655,6 @@ class LinHybridFlowStarToCORA:
     def __defineLocations(self, loc_dict):
         res = "\n%define locations----------------------------------------------------------\n\n"
         counter = 1
-        print("loc names: ", loc_dict)
         for loc in loc_dict:
             res += "options.uLoc{" + str(counter) + "} = 0;\n"
             res += "options.uLocTrans{" + str(counter) + "} = 0;\n"
