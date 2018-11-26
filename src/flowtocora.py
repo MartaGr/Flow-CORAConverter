@@ -198,8 +198,8 @@ class HybridFlowStarToCORA:
             res += "options.timeStepLoc{" + str(i) + "}= " + stepSize + ";\n"
 
         res += "\n%define flows--------------------------------------------------------------\n\n"
-        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow', loc_names, system=options['system'])
-        res += "%define invariants---------------------------------------------------------\n\n"
+        res += self.__constructFromConstraints(flows, options['stateVars'], 'flow', loc_names, system=options['system'], path=infile)
+        res += "\n%define invariants---------------------------------------------------------\n\n"
         res += self.__constructFromConstraints(invariants, options['stateVars'], 'invariant', loc_names,
                                                system=options['system'])
 
@@ -248,7 +248,7 @@ class HybridFlowStarToCORA:
                 if system == 'linear hybrid':
                     res += self.__defineLinearFlow(rhs, lhs, vars, counter)
                 else:
-                    res += self.__defineNonLinearFlow(rhs, vars, counter, name, path)
+                    res += self.__defineNonLinearFlow(rhs, vars, counter, path)
                 counter += 1
             elif name == 'invariant':
                 normalized = self.__normalize(lhs, vars)
@@ -294,12 +294,16 @@ class HybridFlowStarToCORA:
 
         return res
 
-    def __defineNonLinearFlow(self, rhs, vars, counter, name, path):
+    def __defineNonLinearFlow(self, rhs, vars, counter, path):
+        path_array = path.split('/')
+        name = path_array[-1].replace('.model','')
+        path = path.replace(name + '.model', '')
         res = 'flow' + str(counter) + ' = nonlinearSys(' + str(len(vars)) + ", 1, @" + name + "_FlowEq_" + str(counter) + ", options);\n"
 
+
         f_content = ""
-        eq_file_name = path + name + '_FlowEq_' + str(counter) + ".m"
-        eq_file = open(eq_file_name, 'w')
+        eq_file_name = name + '_FlowEq_' + str(counter)
+        eq_file = open(path + '/' + eq_file_name + ".m", 'w')
         f_content += 'function [dx] = ' + eq_file_name + '(t,x,u)\n'
         f_content += '%'
         mapping = {}
@@ -314,7 +318,7 @@ class HybridFlowStarToCORA:
         for expression in rhs:
             for v in vars:
                 expression = expression.replace(v, mapping[v])
-            f_content += 'dx(' + str(counter) + ", 1) = " + expression + '\n'
+            f_content += 'dx(' + str(counter) + ", 1) = " + expression + ';\n'
             counter += 1
         f_content += '\n'
         eq_file.write(f_content)
@@ -725,7 +729,7 @@ class HybridFlowStarToCORA:
             res += "options.verifySpecs = " + options['unsafe'] + ";\n"
 
         if options['system'] == 'non-linear hybrid':
-            res += "options.maxError = " + str(options['maxError']) + " * ones(" + str(len(options['stateVars'])) + ");\n"
+            res += "options.maxError = " + str(options['maxError']) + " * ones(" + str(len(options['stateVars'])) + ",1);\n"
             res += "options.verbose = " + str(options['verbose']) + ";\n"
             res += "options.tensorOrder = " + str(options['tensorOrder']) + ";\n"
             res += "options.advancedLinErrorComp = " + str(options['advancedLinErrorComp']) + ";\n"
